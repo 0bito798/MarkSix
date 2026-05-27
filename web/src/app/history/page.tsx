@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { ALL_NUMBERS, describeSpecialNumber, formatNumber, getWaveColor, inferYearFromIssue } from "@/lib/marksix";
+import { ALL_NUMBERS, describeSpecialNumber, formatNumber, getWaveColor, inferYearFromIssue, macauIssueWhere } from "@/lib/marksix";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -66,16 +66,19 @@ export default async function HistoryPage({
   const sortMode = parseSort(Array.isArray(sortParam) ? sortParam[0] : sortParam);
 
   const [totalDraws, oldestDraw, newestDraw, allSpecials] = await Promise.all([
-    prisma.draw.count(),
+    prisma.draw.count({ where: macauIssueWhere() }),
     prisma.draw.findFirst({
+      where: macauIssueWhere(),
       orderBy: { drawDate: "asc" },
       select: { issueNo: true, drawDate: true },
     }),
     prisma.draw.findFirst({
+      where: macauIssueWhere(),
       orderBy: { drawDate: "desc" },
       select: { issueNo: true, drawDate: true },
     }),
     prisma.draw.findMany({
+      where: macauIssueWhere(),
       select: { specialNumber: true },
     }),
   ]);
@@ -83,6 +86,7 @@ export default async function HistoryPage({
   const totalPages = Math.max(1, Math.ceil(totalDraws / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
   const latestDraws = await prisma.draw.findMany({
+    where: macauIssueWhere(),
     orderBy: { drawDate: "desc" },
     skip: (safePage - 1) * PAGE_SIZE,
     take: PAGE_SIZE,

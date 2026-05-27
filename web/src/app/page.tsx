@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { describeSpecialNumber, formatNumber, getWaveColor, inferYearFromIssue } from "@/lib/marksix";
+import { describeSpecialNumber, formatNumber, getWaveColor, inferYearFromIssue, macauIssueWhere } from "@/lib/marksix";
 import { strategyMeta } from "@/lib/strategies";
 
 export const dynamic = "force-dynamic";
@@ -26,11 +26,12 @@ function waveClassName(number: number): string {
 
 export default async function HomePage() {
   const latestDraw = await prisma.draw.findFirst({
+    where: macauIssueWhere(),
     orderBy: { drawDate: "desc" },
   });
 
   const latestPendingIssue = await prisma.predictionRun.findFirst({
-    where: { status: "PENDING" },
+    where: { status: "PENDING", issueNo: macauIssueWhere().issueNo },
     orderBy: [{ issueNo: "desc" }, { createdAt: "desc" }],
     select: { issueNo: true },
   });
@@ -53,7 +54,7 @@ export default async function HomePage() {
       <div className="hero">
         <div className="hero-copy">
           <p className="eyebrow">Vercel Special Number Predictor</p>
-          <h2>香港六合彩特别号码预测</h2>
+          <h2>新澳门六合彩特别号码预测</h2>
           <div className="scheme-list">
             <p className="scheme-item">
               <strong>生肖号码方案：</strong>
@@ -99,7 +100,7 @@ export default async function HomePage() {
           <div>
             <h3 className="issue-title">下期预测：{latestPendingIssue.issueNo}</h3>
           </div>
-          <p className="kv section-copy">4 套特别号码方案均限制在 30 个候选以内，可直接用于复盘。</p>
+            <p className="kv section-copy">4 套新澳门六合彩特别号码方案均限制在 30 个候选以内，可直接用于复盘。</p>
         </div>
       ) : null}
 

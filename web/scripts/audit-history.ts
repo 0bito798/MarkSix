@@ -1,6 +1,10 @@
 import { prisma } from "../src/lib/prisma";
 
 function parseIssue(issueNo: string): { year: string; seq: number } | null {
+  if (/^\d{7}$/.test(issueNo)) {
+    return { year: issueNo.slice(0, 4), seq: Number(issueNo.slice(4)) };
+  }
+
   const [year, seqText] = issueNo.split("/");
   const seq = Number(seqText);
   if (!year || Number.isNaN(seq)) {
@@ -30,7 +34,10 @@ function checkNumbers(numbers: number[]): string[] {
 }
 
 async function run() {
-  const draws = await prisma.draw.findMany({ orderBy: { drawDate: "asc" } });
+  const draws = await prisma.draw.findMany({
+    where: { issueNo: { gte: "2000000", lte: "2099999" } },
+    orderBy: { drawDate: "asc" },
+  });
 
   if (draws.length === 0) {
     console.log("No draw records found.");

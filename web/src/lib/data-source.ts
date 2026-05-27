@@ -1,24 +1,6 @@
 import { parseDrawCsv, readLocalCsv } from "@/lib/csv";
-import { loadLottolyzerRecords } from "@/lib/lottolyzer-source";
-import { loadMarksix6Records } from "@/lib/marksix6-source";
-import { loadOfficialRecords } from "@/lib/official-source";
+import { loadMacauRecords } from "@/lib/macau-source";
 import { type CsvDrawRecord } from "@/lib/types";
-
-function sortRecords(records: Iterable<CsvDrawRecord>): CsvDrawRecord[] {
-  return [...records].sort((a, b) => a.drawDate.getTime() - b.drawDate.getTime());
-}
-
-function mergeRecordSets(recordSets: CsvDrawRecord[][]): CsvDrawRecord[] {
-  const merged = new Map<string, CsvDrawRecord>();
-
-  for (const set of recordSets) {
-    for (const record of set) {
-      merged.set(record.issueNo, record);
-    }
-  }
-
-  return sortRecords(merged.values());
-}
 
 async function loadRemoteCsvRecords(): Promise<CsvDrawRecord[]> {
   const remoteCsv = process.env.RESULT_CSV_URL?.trim();
@@ -42,7 +24,7 @@ function loadLocalSeedRecords(): CsvDrawRecord[] {
   const configured = process.env.LOCAL_RESULT_CSV_PATH?.trim();
   const candidates = [
     configured,
-    "./Mark_Six.csv",
+    "./Macau_Mark_Six.csv",
   ].filter((value, index, arr): value is string => Boolean(value) && arr.indexOf(value) === index);
 
   let lastError: Error | null = null;
@@ -79,10 +61,7 @@ async function loadOptionalSource(
 }
 
 export async function loadDrawRecords(): Promise<CsvDrawRecord[]> {
-  const provider = (process.env.RESULT_PROVIDER || "hybrid").trim().toLowerCase();
-  const marksix6Required = (process.env.MARKSIX6_SOURCE_REQUIRED || "").trim() === "true";
-  const officialRequired = (process.env.OFFICIAL_SOURCE_REQUIRED || "").trim() === "true";
-  const lottolyzerRequired = (process.env.LOTTOLYZER_SOURCE_REQUIRED || "").trim() === "true";
+  const provider = (process.env.RESULT_PROVIDER || "macau").trim().toLowerCase();
 
   if (provider === "csv") {
     const remote = await loadOptionalSource(loadRemoteCsvRecords, false);
@@ -93,28 +72,9 @@ export async function loadDrawRecords(): Promise<CsvDrawRecord[]> {
     return loadOptionalSource(loadLocalSeedRecords, true);
   }
 
-  if (provider === "official") {
-    return loadOptionalSource(loadOfficialRecords, true);
+  if (provider === "macau") {
+    return loadOptionalSource(loadMacauRecords, true);
   }
 
-  if (provider === "marksix6") {
-    return loadOptionalSource(loadMarksix6Records, true);
-  }
-
-  if (provider === "lottolyzer") {
-    return loadOptionalSource(loadLottolyzerRecords, true);
-  }
-
-  const local = await loadOptionalSource(loadLocalSeedRecords, false);
-  const remote = await loadOptionalSource(loadRemoteCsvRecords, false);
-  const official = await loadOptionalSource(loadOfficialRecords, officialRequired);
-  const lottolyzer = await loadOptionalSource(loadLottolyzerRecords, lottolyzerRequired);
-  const marksix6 = await loadOptionalSource(loadMarksix6Records, marksix6Required);
-  const merged = mergeRecordSets([local, remote, official, lottolyzer, marksix6]);
-
-  if (merged.length === 0) {
-    throw new Error("No draw records were loaded from any configured source");
-  }
-
-  return merged;
+  return loadOptionalSource(loadMacauRecords, true);
 }

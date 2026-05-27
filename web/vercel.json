@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/jobs/sync-latest",
-      "schedule": "0 14 * * 2,4,6"
+      "schedule": "38 13 * * *"
     }
   ]
 }

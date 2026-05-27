@@ -59,7 +59,7 @@ def _pool_line(
 
 def _layout(title: str, body: str) -> str:
     return f"""<!doctype html>
-<html lang=\"zh-HK\">
+<html lang=\"zh-Hans\">
 <head>
   <meta charset=\"utf-8\" />
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
@@ -106,7 +106,7 @@ def _layout(title: str, body: str) -> str:
 <body>
   <div class=\"wrap\">
     <div class=\"top\">
-      <h2 style=\"margin:0\">香港六合彩本地看板</h2>
+      <h2 style=\"margin:0\">新澳门六合彩本地看板</h2>
       <div class=\"tabs\"><a href=\"/\">预测</a><a href=\"/review\">复盘</a></div>
     </div>
     {body}
@@ -474,7 +474,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Local Mark Six dashboard web server")
+    parser = argparse.ArgumentParser(description="Local New Macau Mark Six dashboard web server")
     parser.add_argument("--host", default="127.0.0.1", help="Bind host")
     parser.add_argument("--port", type=int, default=8080, help="Bind port")
     parser.add_argument("--db", default=DB_PATH_DEFAULT, help="SQLite db path")

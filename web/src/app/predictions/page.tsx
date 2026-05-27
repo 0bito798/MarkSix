@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { formatNumber, getWaveColor } from "@/lib/marksix";
+import { formatNumber, getWaveColor, macauIssueWhere } from "@/lib/marksix";
 import { strategyMeta } from "@/lib/strategies";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +22,7 @@ function formatDateTime(date: Date): string {
 
 export default async function PredictionsPage() {
   const predictionHistory = await prisma.predictionRun.findMany({
+    where: { issueNo: macauIssueWhere().issueNo },
     include: {
       picks: {
         orderBy: { rank: "asc" },

@@ -1,13 +1,12 @@
-# 香港六合彩特别号码预测项目
+# 新澳门六合彩特别号码预测项目
 
 这是一个可部署到 Vercel 的 Next.js 应用，核心目标是预测“下期特别号码候选池”，而不是 6 个正码。
 
 ## 当前能力
-- 以 `Mark_Six.csv` 作为本地历史种子数据
-- 自动补齐线上最新历史，支持：
-  - [Marksix6 香港彩 API](https://api3.marksix6.net/lottery_api.php?type=hk)
-  - [Lottolyzer 历史页](https://zh.lottolyzer.com/history/hong-kong/mark-six/page/1/per-page/50/summary-view)
-  - [HKJC 最近 30 期 JSON](https://bet.hkjc.com/contentserver/jcbw/cmc/last30draw.json)
+- 默认使用新澳门六合彩接口同步历史与最新开奖：
+  - 最新期开奖：`https://macaumarksix.com/api/macaujc2.com`
+  - 按年历史：`https://history.macaumarksix.com/history/macaujc2/y/{year}`
+- 支持新澳门期号 `YYYYNNN`，例如 `2026146`
 - Vercel Cron 自动同步最新期次，并写入 Postgres
 - 自动复盘特别号码是否命中候选池
 - 4 套特别号码预测方案：
@@ -27,18 +26,13 @@
    综合热度、冷门、生肖、波色、分区和主号联动，形成平衡型特别号候选池。
 
 ## 数据策略
-- 本地初始化优先读取 `Mark_Six.csv`
-- 自动同步默认使用 `RESULT_PROVIDER=hybrid`
-- `hybrid` 模式会合并：
-  - 本地 CSV
-  - 远程 CSV（如配置了 `RESULT_CSV_URL`）
-  - Marksix6 最新结果 API
-  - HKJC 官方 JSON
-  - Lottolyzer 历史页
+- 自动同步默认使用 `RESULT_PROVIDER=macau`
+- `macau` 模式会同步新澳门历史 API 与最新期开奖 API
+- 可选 CSV 导入支持 `expect/openTime/openCode` 或旧的中文字段
 - 同一期号按 `issueNo` 去重，较新的远程来源会覆盖本地旧记录
 
 说明：
-- `Mark_Six.csv` 不需要把所有字段都写进数据库，目前数据库只持久化预测真正需要的核心字段：
+- 数据库只持久化预测真正需要的核心字段：
   - `issueNo`
   - `drawDate`
   - `numbersJson`
@@ -82,7 +76,7 @@ npm run dev
   - 请求体示例：
 ```json
 {
-  "issueNo": "26/037",
+  "issueNo": "2026147",
   "strategies": ["zodiac_special_v1", "hot_special_v1"]
 }
 ```
@@ -91,16 +85,17 @@ npm run dev
 ```env
 DATABASE_URL="auto-injected-by-vercel-neon"
 CRON_SECRET="replace-with-a-long-random-string"
-RESULT_PROVIDER="hybrid"
-MARKSIX6_API_URL="https://api3.marksix6.net/lottery_api.php?type=hk"
-LOCAL_RESULT_CSV_PATH="./Mark_Six.csv"
-OFFICIAL_RESULT_URL="https://bet.hkjc.com/contentserver/jcbw/cmc/last30draw.json"
-LOTTOLYZER_HISTORY_URL="https://zh.lottolyzer.com/history/hong-kong/mark-six"
+RESULT_PROVIDER="macau"
+MACAU_LOTTERY_KEY="macaujc2"
+MACAU_LATEST_API_URL="https://macaumarksix.com/api/macaujc2.com"
+MACAU_HISTORY_API_TEMPLATE="https://history.macaumarksix.com/history/macaujc2/y/{year}"
+MACAU_HISTORY_FROM_YEAR="2024"
+MACAU_HISTORY_TO_YEAR="2026"
 ```
 
 说明：
 - `DATABASE_URL` 由 Neon 集成自动注入，一般不用手填。
-- 其他 5 个变量建议在 Vercel 项目里手动添加到 `Production` 和 `Preview`。
+- 历史范围变量建议按需调整。默认未配置时会抓取当前澳门年份及前 2 年。
 
 ## 部署到 Vercel
 1. 推送代码到 GitHub。
@@ -109,10 +104,10 @@ LOTTOLYZER_HISTORY_URL="https://zh.lottolyzer.com/history/hong-kong/mark-six"
 4. 确认 `DATABASE_URL` 已被 Neon 自动注入。
 5. 在项目 `Settings -> Environment Variables` 中新增：
    - `CRON_SECRET`
-   - `RESULT_PROVIDER=hybrid`
-   - `LOCAL_RESULT_CSV_PATH=./Mark_Six.csv`
-   - `OFFICIAL_RESULT_URL=https://bet.hkjc.com/contentserver/jcbw/cmc/last30draw.json`
-   - `LOTTOLYZER_HISTORY_URL=https://zh.lottolyzer.com/history/hong-kong/mark-six`
+   - `RESULT_PROVIDER=macau`
+   - `MACAU_LOTTERY_KEY=macaujc2`
+   - `MACAU_LATEST_API_URL=https://macaumarksix.com/api/macaujc2.com`
+   - `MACAU_HISTORY_API_TEMPLATE=https://history.macaumarksix.com/history/macaujc2/y/{year}`
 6. Build Command 使用：
 ```bash
 npm run vercel-build
@@ -122,9 +117,9 @@ npm run vercel-build
 8. 后续由 `vercel.json` 中的 cron 自动执行。
 
 ## 历史补录
-如果你有更早的 CSV 文件，可放到 `data/history/` 后执行：
+如果你有更早的新澳门 CSV 文件，可放到 `data/history/` 后执行：
 ```bash
-npm run backfill:history -- --path ./data/history --from-year 1993 --to-year 2007
+npm run backfill:history -- --path ./data/history --from-year 2023 --to-year 2026
 ```
 
 完成后可审计：

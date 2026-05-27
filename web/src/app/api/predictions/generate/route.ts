@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isMacauIssueNo } from "@/lib/marksix";
 import { generatePredictionsForIssue, generatePredictionsForNextIssue } from "@/lib/prediction-service";
 import { type StrategyId } from "@/lib/types";
 
@@ -10,6 +11,9 @@ export async function POST(request: Request) {
     };
 
     if (body.issueNo) {
+      if (!isMacauIssueNo(body.issueNo)) {
+        return NextResponse.json({ error: "新澳门六合彩期号必须是 7 位格式，例如 2026147" }, { status: 400 });
+      }
       const createdRunIds = await generatePredictionsForIssue(body.issueNo, body.strategies);
       return NextResponse.json({ ok: true, issueNo: body.issueNo, createdRunIds });
     }

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { describeSpecialNumber, inferYearFromIssue } from "@/lib/marksix";
+import { describeSpecialNumber, inferYearFromIssue, macauIssueWhere } from "@/lib/marksix";
 import { strategyMeta } from "@/lib/strategies";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +15,7 @@ function parseJsonArray(text: string): number[] {
 
 export default async function ReviewPage() {
   const reviews = await prisma.predictionReview.findMany({
+    where: { draw: macauIssueWhere() },
     include: {
       run: true,
       draw: true,
@@ -25,7 +26,7 @@ export default async function ReviewPage() {
 
   const stats = await prisma.predictionRun.groupBy({
     by: ["strategy"],
-    where: { status: "REVIEWED" },
+    where: { status: "REVIEWED", issueNo: macauIssueWhere().issueNo },
     _avg: { hitRate: true, hitCount: true },
     _count: { _all: true },
   });

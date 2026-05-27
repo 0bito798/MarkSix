@@ -1,9 +1,14 @@
 import { PredictionStatus } from "@prisma/client";
+import { macauIssueWhere, nextMacauIssueNo } from "@/lib/marksix";
 import { prisma } from "@/lib/prisma";
 import { allStrategies, generateStrategyResult } from "@/lib/strategies";
 import { type StrategyId } from "@/lib/types";
 
 function nextIssueNo(issueNo: string): string {
+  if (/^\d{7}$/.test(issueNo)) {
+    return nextMacauIssueNo(issueNo);
+  }
+
   const [year, no] = issueNo.split("/");
   const seq = Number(no);
   if (!year || Number.isNaN(seq)) {
@@ -14,6 +19,7 @@ function nextIssueNo(issueNo: string): string {
 
 export async function generatePredictionsForIssue(issueNo: string, strategyIds?: StrategyId[]) {
   const draws = await prisma.draw.findMany({
+    where: macauIssueWhere(),
     orderBy: { drawDate: "desc" },
     take: 200,
   });
@@ -70,6 +76,7 @@ export async function generatePredictionsForIssue(issueNo: string, strategyIds?:
 
 export async function generatePredictionsForNextIssue() {
   const latest = await prisma.draw.findFirst({
+    where: macauIssueWhere(),
     orderBy: { drawDate: "desc" },
     select: { issueNo: true },
   });

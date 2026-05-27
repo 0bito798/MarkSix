@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import calendar
 import csv
 import io
 import json
@@ -9,18 +10,18 @@ import re
 import sqlite3
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 from urllib.request import Request, urlopen
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DB_PATH_DEFAULT = str(SCRIPT_DIR / "marksix_local.db")
-CSV_PATH_DEFAULT = str(SCRIPT_DIR / "Mark_Six.csv")
-OFFICIAL_URL_DEFAULT = "https://bet.hkjc.com/contentserver/jcbw/cmc/last30draw.json"
-THIRD_PARTY_MAX_PAGES_DEFAULT = 60
-THIRD_PARTY_URLS_DEFAULT: List[str] = [
-    "https://lottolyzer.com/history/hong-kong/mark-six/page/1/per-page/50/summary-view",
+CSV_PATH_DEFAULT = str(SCRIPT_DIR / "Macau_Mark_Six.csv")
+LATEST_URL_DEFAULT = "https://macaumarksix.com/api/macaujc2.com"
+HISTORY_MAX_PAGES_DEFAULT = 60
+HISTORY_URLS_DEFAULT: List[str] = [
+    "https://history.macaumarksix.com/history/macaujc2/y/{year}",
 ]
 MINED_CONFIG_KEY = "mined_strategy_config_v1"
 ALL_NUMBERS = list(range(1, 50))
@@ -195,6 +196,18 @@ def _parse_numbers(value: str) -> List[int]:
     return out
 
 
+def _macau_current_year() -> int:
+    return int(datetime.now(timezone(timedelta(hours=8))).strftime("%Y"))
+
+
+def _normalize_macau_issue(value: object) -> str:
+    text = str(value or "").strip()
+    if re.fullmatch(r"\d{7}", text):
+        return text
+    digits = re.sub(r"\D", "", text)
+    return digits if re.fullmatch(r"\d{7}", digits) else ""
+
+
 def parse_draw_csv(csv_path: str) -> List[DrawRecord]:
     path = Path(csv_path)
     if not path.exists():
@@ -205,11 +218,16 @@ def parse_draw_csv(csv_path: str) -> List[DrawRecord]:
         reader = csv.DictReader(f)
         for raw in reader:
             row = {k.strip(): (v or "").strip() for k, v in raw.items() if k}
-            issue_no = _pick(row, ["期号", "期數", "issueNo", "issue_no"])
-            draw_date = _parse_date(_pick(row, ["日期", "date", "drawDate", "draw_date"]))
+            issue_no = _pick(row, ["期号", "期數", "expect", "issueNo", "issue_no"])
+            draw_date = _parse_date(_pick(row, ["日期", "openTime", "date", "drawDate", "draw_date"]))
             special = _pick(row, ["特别号码", "特別號碼", "special", "specialNumber", "no7", "n7"])
 
-            numbers = _parse_numbers(_pick(row, ["中奖号码", "中獎號碼", "numbers", "result"]))
+            combined_text = _pick(row, ["中奖号码", "中獎號碼", "openCode", "numbers", "result"])
+            numbers = _parse_numbers(combined_text)
+            if len(numbers) >= 7:
+                if not special:
+                    special = str(numbers[6])
+                numbers = numbers[:6]
             if len(numbers) != 6:
                 split_keys = ["中奖号码 1", "中獎號碼 1", "1"], ["2"], ["3"], ["4"], ["5"], ["6"]
                 split_nums: List[int] = []
@@ -262,11 +280,16 @@ def parse_draw_csv_text(csv_text: str) -> List[DrawRecord]:
     reader = csv.DictReader(io.StringIO(csv_text))
     for raw in reader:
         row = {k.strip(): (v or "").strip() for k, v in raw.items() if k}
-        issue_no = _pick(row, ["期号", "期數", "issueNo", "issue_no"])
-        draw_date = _parse_date(_pick(row, ["日期", "date", "drawDate", "draw_date"]))
+        issue_no = _pick(row, ["期号", "期數", "expect", "issueNo", "issue_no"])
+        draw_date = _parse_date(_pick(row, ["日期", "openTime", "date", "drawDate", "draw_date"]))
         special = _pick(row, ["特别号码", "特別號碼", "special", "specialNumber", "no7", "n7"])
 
-        numbers = _parse_numbers(_pick(row, ["中奖号码", "中獎號碼", "numbers", "result"]))
+        combined_text = _pick(row, ["中奖号码", "中獎號碼", "openCode", "numbers", "result"])
+        numbers = _parse_numbers(combined_text)
+        if len(numbers) >= 7:
+            if not special:
+                special = str(numbers[6])
+            numbers = numbers[:6]
         if len(numbers) != 6:
             split_keys = ["中奖号码 1", "中獎號碼 1", "1"], ["2"], ["3"], ["4"], ["5"], ["6"]
             split_nums: List[int] = []
@@ -323,15 +346,18 @@ def _to_int(value: object) -> Optional[int]:
 
 
 def _extract_issue_no(row: Dict[str, object]) -> str:
-    for key in ("issueNo", "drawNo", "draw", "issue", "period", "id"):
+    for key in ("expect", "issueNo", "drawNo", "draw", "issue", "period", "id"):
         text = str(row.get(key, "")).strip()
+        macau_issue = _normalize_macau_issue(text)
+        if macau_issue:
+            return macau_issue
         if text and "/" in text:
             return text
     return ""
 
 
 def _extract_draw_date(row: Dict[str, object]) -> Optional[str]:
-    for key in ("date", "drawDate", "draw_date", "drawdate", "dt"):
+    for key in ("openTime", "date", "drawDate", "draw_date", "drawdate", "dt"):
         value = row.get(key)
         if value is None:
             continue
@@ -351,7 +377,7 @@ def _extract_main_numbers(row: Dict[str, object]) -> List[int]:
     if len(split) >= 6:
         return split[:6]
 
-    for key in ("numbers", "nos", "no", "result", "main"):
+    for key in ("openCode", "numbers", "nos", "no", "result", "main"):
         nums = _parse_numbers(str(row.get(key, "")))
         if len(nums) >= 6:
             return nums[:6]
@@ -363,7 +389,7 @@ def _extract_special_number(row: Dict[str, object]) -> Optional[int]:
         n = _to_int(row.get(key))
         if n is not None:
             return n
-    for key in ("result", "no", "numbers"):
+    for key in ("openCode", "result", "no", "numbers"):
         nums = _parse_numbers(str(row.get(key, "")))
         if len(nums) >= 7:
             n = nums[6]
@@ -371,7 +397,7 @@ def _extract_special_number(row: Dict[str, object]) -> Optional[int]:
     return None
 
 
-def parse_official_json(payload: object) -> List[DrawRecord]:
+def parse_api_json(payload: object) -> List[DrawRecord]:
     rows: List[Dict[str, object]] = []
     if isinstance(payload, list):
         rows = [r for r in payload if isinstance(r, dict)]
@@ -398,33 +424,33 @@ def parse_official_json(payload: object) -> List[DrawRecord]:
     return sorted(dedup.values(), key=lambda r: (r.draw_date, r.issue_no))
 
 
-def fetch_official_records(official_url: str) -> List[DrawRecord]:
+def fetch_latest_records(latest_url: str) -> List[DrawRecord]:
     req = Request(
-        official_url,
+        latest_url,
         headers={
-            "User-Agent": "Mozilla/5.0 (compatible; marksix-local/1.0)",
+            "User-Agent": "Mozilla/5.0 (compatible; new-macau-marksix-local/1.0)",
             "Accept": "application/json,text/plain,*/*",
         },
     )
     with urlopen(req, timeout=15) as resp:
         raw = resp.read().decode("utf-8-sig")
     payload = json.loads(raw)
-    records = parse_official_json(payload)
+    records = parse_api_json(payload)
     if not records:
-        raise RuntimeError("Official source parsed 0 records. Please check official URL format.")
+        raise RuntimeError("New Macau latest source parsed 0 records. Please check latest URL format.")
     return records
 
 
-def fetch_records_from_url(url: str, source_label: str, third_party_max_pages: int = THIRD_PARTY_MAX_PAGES_DEFAULT) -> List[DrawRecord]:
-    if "lottolyzer.com/history/hong-kong/mark-six" in url:
-        records = fetch_lottolyzer_records(url, max_pages=third_party_max_pages)
+def fetch_records_from_url(url: str, source_label: str, history_max_pages: int = HISTORY_MAX_PAGES_DEFAULT) -> List[DrawRecord]:
+    if "{year}" in url:
+        records = fetch_macau_history_records(url)
         if records:
             return records
 
     req = Request(
         url,
         headers={
-            "User-Agent": "Mozilla/5.0 (compatible; marksix-local/1.0)",
+            "User-Agent": "Mozilla/5.0 (compatible; new-macau-marksix-local/1.0)",
             "Accept": "application/json,text/plain,text/csv,*/*",
         },
     )
@@ -434,7 +460,7 @@ def fetch_records_from_url(url: str, source_label: str, third_party_max_pages: i
     stripped = raw.lstrip()
     if stripped.startswith("{") or stripped.startswith("["):
         payload = json.loads(raw)
-        records = parse_official_json(payload)
+        records = parse_api_json(payload)
         if records:
             return records
 
@@ -445,105 +471,34 @@ def fetch_records_from_url(url: str, source_label: str, third_party_max_pages: i
     raise RuntimeError(f"{source_label} parsed 0 records.")
 
 
-def parse_lottolyzer_html(raw_html: str) -> List[DrawRecord]:
-    text = re.sub(r"<[^>]+>", " ", raw_html)
-    text = text.replace("&nbsp;", " ")
-    text = re.sub(r"\s+", " ", text)
-
-    pattern = re.compile(
-        r"(?P<issue>\d{2}/\d{3})\s+"
-        r"(?P<date>\d{4}-\d{2}-\d{2})\s+"
-        r"(?P<numbers>\d{1,2}(?:,\d{1,2}){5})\s+"
-        r"(?P<extra>\d{1,2})\b"
-    )
-
-    out: List[DrawRecord] = []
-    for m in pattern.finditer(text):
-        issue_no = m.group("issue").strip()
-        draw_date = _parse_date(m.group("date").strip())
-        numbers = _parse_numbers(m.group("numbers").strip())
-        extra = _to_int(m.group("extra").strip())
-        if not draw_date or len(numbers) != 6 or extra is None:
-            continue
-        out.append(DrawRecord(issue_no=issue_no, draw_date=draw_date, numbers=numbers, special_number=extra))
-
-    dedup: Dict[str, DrawRecord] = {}
-    for r in out:
-        dedup[r.issue_no] = r
-    return sorted(dedup.values(), key=lambda r: (r.draw_date, r.issue_no))
-
-
-def _lottolyzer_total_pages(raw_html: str) -> int:
-    text = re.sub(r"<[^>]+>", " ", raw_html)
-    text = re.sub(r"\s+", " ", text)
-    candidates = re.findall(r"\b\d+\s*/\s*(\d+)\b", text)
-    if not candidates:
-        return 1
-    nums = [int(x) for x in candidates if x.isdigit()]
-    nums = [n for n in nums if 1 <= n <= 300]
-    return max(nums) if nums else 1
-
-
-def _lottolyzer_page_url(base_url: str, page_no: int) -> str:
-    if re.search(r"/page/\d+/", base_url):
-        return re.sub(r"/page/\d+/", f"/page/{page_no}/", base_url)
-    if base_url.endswith("/"):
-        return f"{base_url}page/{page_no}/"
-    return f"{base_url}/page/{page_no}/"
-
-
-def fetch_lottolyzer_records(base_url: str, max_pages: int = 20) -> List[DrawRecord]:
-    req = Request(
-        base_url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (compatible; marksix-local/1.0)",
-            "Accept": "text/html,*/*",
-        },
-    )
-    with urlopen(req, timeout=20) as resp:
-        first_html = resp.read().decode("utf-8-sig")
-
-    total_pages = _lottolyzer_total_pages(first_html)
-    pages_to_fetch = max(1, min(total_pages, max_pages))
-    all_records = parse_lottolyzer_html(first_html)
-
-    for page_no in range(2, pages_to_fetch + 1):
-        page_url = _lottolyzer_page_url(base_url, page_no)
+def fetch_macau_history_records(template_url: str, from_year: Optional[int] = None, to_year: Optional[int] = None) -> List[DrawRecord]:
+    current_year = _macau_current_year()
+    start = from_year or int(str(current_year - 2))
+    end = to_year or current_year
+    all_records: List[DrawRecord] = []
+    errors: List[str] = []
+    for year in range(start, end + 1):
+        url = template_url.replace("{year}", str(year))
         try:
-            req2 = Request(
-                page_url,
+            req = Request(
+                url,
                 headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; marksix-local/1.0)",
-                    "Accept": "text/html,*/*",
+                    "User-Agent": "Mozilla/5.0 (compatible; new-macau-marksix-local/1.0)",
+                    "Accept": "application/json,text/plain,*/*",
                 },
             )
-            with urlopen(req2, timeout=20) as resp2:
-                html = resp2.read().decode("utf-8-sig")
-            all_records.extend(parse_lottolyzer_html(html))
-        except Exception:
-            break
-
+            with urlopen(req, timeout=20) as resp:
+                raw = resp.read().decode("utf-8-sig")
+            all_records.extend(parse_api_json(json.loads(raw)))
+        except Exception as exc:
+            errors.append(f"{year}: {exc}")
     dedup: Dict[str, DrawRecord] = {}
     for r in all_records:
         dedup[r.issue_no] = r
-    return sorted(dedup.values(), key=lambda r: (r.draw_date, r.issue_no))
-
-
-def fetch_online_records_with_fallback(official_url: str, third_party_url: str) -> Tuple[List[DrawRecord], str]:
-    errors: List[str] = []
-    if official_url.strip():
-        try:
-            return fetch_records_from_url(official_url, "official source"), "official_api"
-        except Exception as exc:
-            errors.append(f"official failed: {exc}")
-
-    if third_party_url.strip():
-        try:
-            return fetch_records_from_url(third_party_url, "third-party source"), "third_party_api"
-        except Exception as exc:
-            errors.append(f"third-party failed: {exc}")
-
-    raise RuntimeError(" | ".join(errors) if errors else "No online source configured.")
+    records = sorted(dedup.values(), key=lambda r: (r.draw_date, r.issue_no))
+    if not records and errors:
+        raise RuntimeError("New Macau history parsed 0 records. " + " | ".join(errors[:3]))
+    return records
 
 
 def parse_url_list(values: Sequence[str]) -> List[str]:
@@ -562,31 +517,49 @@ def parse_url_list(values: Sequence[str]) -> List[str]:
     return dedup
 
 
-def fetch_online_records_with_multi_fallback(
-    official_url: str,
-    third_party_urls: Sequence[str],
-    third_party_max_pages: int = THIRD_PARTY_MAX_PAGES_DEFAULT,
+def fetch_macau_online_records(
+    latest_url: str,
+    history_urls: Sequence[str],
+    history_max_pages: int = HISTORY_MAX_PAGES_DEFAULT,
 ) -> Tuple[List[DrawRecord], str, str]:
+    all_records: List[DrawRecord] = []
+    used_urls: List[str] = []
     errors: List[str] = []
-    if official_url.strip():
-        try:
-            records = fetch_records_from_url(official_url, "official source", third_party_max_pages=third_party_max_pages)
-            return records, "official_api", official_url
-        except Exception as exc:
-            errors.append(f"official failed: {exc}")
 
-    for idx, url in enumerate(third_party_urls):
+    for idx, url in enumerate(history_urls):
         try:
             records = fetch_records_from_url(
                 url,
-                f"third-party source #{idx + 1}",
-                third_party_max_pages=third_party_max_pages,
+                f"new macau history source #{idx + 1}",
+                history_max_pages=history_max_pages,
             )
-            return records, f"third_party_api_{idx + 1}", url
+            if records:
+                all_records.extend(records)
+                used_urls.append(url)
         except Exception as exc:
-            errors.append(f"third_party[{idx + 1}] failed: {exc}")
+            errors.append(f"history[{idx + 1}] failed: {exc}")
 
-    raise RuntimeError(" | ".join(errors) if errors else "No online source configured.")
+    if latest_url.strip():
+        try:
+            records = fetch_records_from_url(
+                latest_url,
+                "new macau latest source",
+                history_max_pages=history_max_pages,
+            )
+            if records:
+                all_records.extend(records)
+                used_urls.append(latest_url)
+        except Exception as exc:
+            errors.append(f"latest failed: {exc}")
+
+    dedup: Dict[str, DrawRecord] = {}
+    for r in all_records:
+        dedup[r.issue_no] = r
+    records = sorted(dedup.values(), key=lambda r: (r.draw_date, r.issue_no))
+    if not records:
+        raise RuntimeError(" | ".join(errors) if errors else "No New Macau online source configured.")
+
+    return records, "new_macau_api", ",".join(used_urls)
 
 
 def upsert_draw(conn: sqlite3.Connection, record: DrawRecord, source: str) -> str:
@@ -635,6 +608,9 @@ def has_any_draw(conn: sqlite3.Connection) -> bool:
 
 
 def parse_issue(issue_no: str) -> Optional[Tuple[str, int, int]]:
+    if re.fullmatch(r"\d{7}", issue_no):
+        return issue_no[:4], int(issue_no[4:]), 3
+
     parts = issue_no.split("/")
     if len(parts) != 2:
         return None
@@ -653,7 +629,13 @@ def issue_sort_key(issue_no: str) -> Optional[int]:
 
 
 def build_issue(year_s: str, seq: int, width: int) -> str:
+    if len(year_s) == 4 and width == 3:
+        return f"{year_s}{str(seq).zfill(width)}"
     return f"{year_s}/{str(seq).zfill(width)}"
+
+
+def _issue_count_for_year(year: int) -> int:
+    return 366 if calendar.isleap(year) else 365
 
 
 def next_issue(issue_no: str) -> str:
@@ -661,7 +643,11 @@ def next_issue(issue_no: str) -> str:
     if not parsed:
         return issue_no
     year, seq, width = parsed
-    return f"{year}/{str(seq + 1).zfill(width)}"
+    year_n = int(year)
+    next_seq = seq + 1
+    if len(year) == 4 and width == 3 and next_seq > _issue_count_for_year(year_n):
+        return build_issue(str(year_n + 1), 1, width)
+    return build_issue(year, next_seq, width)
 
 
 def missing_issues_since_latest(conn: sqlite3.Connection, incoming: List[DrawRecord]) -> List[str]:
@@ -692,7 +678,7 @@ def missing_issues_since_latest(conn: sqlite3.Connection, incoming: List[DrawRec
 
     while probe_key < max_key:
         probe_seq += 1
-        if probe_seq > 366:
+        if probe_seq > _issue_count_for_year(probe_year):
             probe_year += 1
             probe_seq = 1
             width = 3
@@ -1574,26 +1560,26 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
     conn = connect_db(args.db)
     try:
         init_db(conn)
-        configured_urls = parse_url_list(args.third_party_url or [])
-        third_party_urls = configured_urls if configured_urls else THIRD_PARTY_URLS_DEFAULT
-        if args.source == "official":
-            records = fetch_official_records(args.official_url)
-            total, inserted, updated = sync_from_records(conn, records, source="official_api")
-        elif args.source == "third_party":
-            if not third_party_urls:
-                raise RuntimeError("Missing --third-party-url")
+        configured_urls = parse_url_list(args.history_url or [])
+        history_urls = configured_urls if configured_urls else HISTORY_URLS_DEFAULT
+        if args.source == "latest":
+            records = fetch_latest_records(args.latest_url)
+            total, inserted, updated = sync_from_records(conn, records, source="new_macau_latest_api")
+        elif args.source == "history":
+            if not history_urls:
+                raise RuntimeError("Missing --history-url")
             records = fetch_records_from_url(
-                third_party_urls[0],
-                "third-party source",
-                third_party_max_pages=args.third_party_max_pages,
+                history_urls[0],
+                "new macau history source",
+                history_max_pages=args.history_max_pages,
             )
-            total, inserted, updated = sync_from_records(conn, records, source="third_party_api_1")
+            total, inserted, updated = sync_from_records(conn, records, source="new_macau_history_api_1")
         elif args.source == "auto":
             try:
-                records, source_label, used_url = fetch_online_records_with_multi_fallback(
-                    args.official_url,
-                    third_party_urls,
-                    third_party_max_pages=args.third_party_max_pages,
+                records, source_label, used_url = fetch_macau_online_records(
+                    args.latest_url,
+                    history_urls,
+                    history_max_pages=args.history_max_pages,
                 )
                 total, inserted, updated = sync_from_records(conn, records, source=source_label)
                 print(f"Bootstrap source: {used_url}")
@@ -1611,14 +1597,14 @@ def cmd_sync(args: argparse.Namespace) -> None:
     conn = connect_db(args.db)
     try:
         init_db(conn)
-        configured_urls = parse_url_list(args.third_party_url or [])
-        third_party_urls = configured_urls if configured_urls else THIRD_PARTY_URLS_DEFAULT
+        configured_urls = parse_url_list(args.history_url or [])
+        history_urls = configured_urls if configured_urls else HISTORY_URLS_DEFAULT
         used_source_url = ""
-        if args.source == "official":
+        if args.source == "latest":
             records = fetch_records_from_url(
-                args.official_url,
-                "official source",
-                third_party_max_pages=args.third_party_max_pages,
+                args.latest_url,
+                "new macau latest source",
+                history_max_pages=args.history_max_pages,
             )
             if args.require_continuity:
                 missing = missing_issues_since_latest(conn, records)
@@ -1626,15 +1612,15 @@ def cmd_sync(args: argparse.Namespace) -> None:
                     raise RuntimeError(
                         f"Continuity check failed. Missing {len(missing)} issues, sample={','.join(missing[:10])}"
                     )
-            total, inserted, updated = sync_from_records(conn, records, source="official_api")
-            used_source_url = args.official_url
-        elif args.source == "third_party":
-            if not third_party_urls:
-                raise RuntimeError("Missing --third-party-url")
+            total, inserted, updated = sync_from_records(conn, records, source="new_macau_latest_api")
+            used_source_url = args.latest_url
+        elif args.source == "history":
+            if not history_urls:
+                raise RuntimeError("Missing --history-url")
             records = fetch_records_from_url(
-                third_party_urls[0],
-                "third-party source",
-                third_party_max_pages=args.third_party_max_pages,
+                history_urls[0],
+                "new macau history source",
+                history_max_pages=args.history_max_pages,
             )
             if args.require_continuity:
                 missing = missing_issues_since_latest(conn, records)
@@ -1642,15 +1628,20 @@ def cmd_sync(args: argparse.Namespace) -> None:
                     raise RuntimeError(
                         f"Continuity check failed. Missing {len(missing)} issues, sample={','.join(missing[:10])}"
                     )
-            total, inserted, updated = sync_from_records(conn, records, source="third_party_api_1")
-            used_source_url = third_party_urls[0]
+            total, inserted, updated = sync_from_records(conn, records, source="new_macau_history_api_1")
+            used_source_url = history_urls[0]
         elif args.source == "auto":
-            if has_any_draw(conn):
-                records, source_label, used_url = fetch_online_records_with_multi_fallback(
-                    args.official_url,
-                    third_party_urls,
-                    third_party_max_pages=args.third_party_max_pages,
+            try:
+                records, source_label, used_url = fetch_macau_online_records(
+                    args.latest_url,
+                    history_urls,
+                    history_max_pages=args.history_max_pages,
                 )
+            except Exception:
+                if has_any_draw(conn):
+                    raise
+                total, inserted, updated = sync_from_csv(conn, args.csv)
+            else:
                 if args.require_continuity:
                     missing = missing_issues_since_latest(conn, records)
                     if missing:
@@ -1659,8 +1650,6 @@ def cmd_sync(args: argparse.Namespace) -> None:
                         )
                 total, inserted, updated = sync_from_records(conn, records, source=source_label)
                 used_source_url = used_url
-            else:
-                total, inserted, updated = sync_from_csv(conn, args.csv)
         else:
             total, inserted, updated = sync_from_csv(conn, args.csv)
         mined_cfg = ensure_mined_pattern_config(conn, force=args.remine)
@@ -1743,78 +1732,78 @@ def cmd_mine(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Local Mark Six predictor (Python + SQLite)")
+    p = argparse.ArgumentParser(description="Local New Macau Mark Six predictor (Python + SQLite)")
     p.add_argument("--db", default=DB_PATH_DEFAULT, help=f"SQLite db path (default: {DB_PATH_DEFAULT})")
     p.add_argument("--update", action="store_true", help="Quick sync (same as sync)")
     p.add_argument("--updata", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--update-csv", default=CSV_PATH_DEFAULT, help=f"CSV path used with --update/--updata (default: {CSV_PATH_DEFAULT})")
     p.add_argument(
         "--source",
-        choices=["official", "third_party", "csv", "auto"],
+        choices=["latest", "history", "csv", "auto"],
         default="auto",
-        help="Data source mode: auto=CSV only for first init, then online (official->third_party)",
+        help="Data source mode: auto=CSV only for first init, then online New Macau API",
     )
     p.add_argument("--remine", action="store_true", help="Re-mine pattern config before sync/backtest")
-    p.add_argument("--official-url", default=OFFICIAL_URL_DEFAULT, help="Official result JSON URL")
+    p.add_argument("--latest-url", default=LATEST_URL_DEFAULT, help="New Macau latest result JSON URL")
     p.add_argument(
-        "--third-party-url",
+        "--history-url",
         action="append",
         default=[],
-        help="Third-party API URL (JSON/CSV). Can be repeated or comma-separated. If omitted, built-in defaults are used.",
+        help="New Macau history API template or other JSON/CSV URL. Can be repeated or comma-separated.",
     )
     p.add_argument(
-        "--third-party-max-pages",
+        "--history-max-pages",
         type=int,
-        default=THIRD_PARTY_MAX_PAGES_DEFAULT,
-        help="Max pages for HTML-style third-party sources (e.g. Lottolyzer).",
+        default=HISTORY_MAX_PAGES_DEFAULT,
+        help="Max pages for paginated history sources.",
     )
     p.add_argument("--require-continuity", action="store_true", default=True, help="Fail update when issue sequence has gaps")
     p.add_argument("--no-require-continuity", dest="require_continuity", action="store_false", help="Allow gaps")
     sub = p.add_subparsers(dest="command", required=False)
 
-    p_boot = sub.add_parser("bootstrap", help="Initial import from CSV and generate next issue predictions")
+    p_boot = sub.add_parser("bootstrap", help="Initial import from New Macau API/CSV and generate next issue predictions")
     p_boot.add_argument("--csv", default=CSV_PATH_DEFAULT, help=f"CSV path (default: {CSV_PATH_DEFAULT})")
     p_boot.add_argument(
         "--source",
-        choices=["official", "third_party", "csv", "auto"],
-        default="csv",
-        help="Data source mode",
-    )
-    p_boot.add_argument("--official-url", default=OFFICIAL_URL_DEFAULT, help="Official result JSON URL")
-    p_boot.add_argument(
-        "--third-party-url",
-        action="append",
-        default=[],
-        help="Third-party API URL (JSON/CSV). Can be repeated or comma-separated. If omitted, built-in defaults are used.",
-    )
-    p_boot.add_argument(
-        "--third-party-max-pages",
-        type=int,
-        default=THIRD_PARTY_MAX_PAGES_DEFAULT,
-        help="Max pages for HTML-style third-party sources (e.g. Lottolyzer).",
-    )
-    p_boot.set_defaults(func=cmd_bootstrap)
-
-    p_sync = sub.add_parser("sync", help="Sync draws from CSV, review latest, generate next prediction")
-    p_sync.add_argument("--csv", default=CSV_PATH_DEFAULT, help=f"CSV path (default: {CSV_PATH_DEFAULT})")
-    p_sync.add_argument(
-        "--source",
-        choices=["official", "third_party", "csv", "auto"],
+        choices=["latest", "history", "csv", "auto"],
         default="auto",
         help="Data source mode",
     )
-    p_sync.add_argument("--official-url", default=OFFICIAL_URL_DEFAULT, help="Official result JSON URL")
-    p_sync.add_argument(
-        "--third-party-url",
+    p_boot.add_argument("--latest-url", default=LATEST_URL_DEFAULT, help="New Macau latest result JSON URL")
+    p_boot.add_argument(
+        "--history-url",
         action="append",
         default=[],
-        help="Third-party API URL (JSON/CSV). Can be repeated or comma-separated. If omitted, built-in defaults are used.",
+        help="New Macau history API template or other JSON/CSV URL. Can be repeated or comma-separated.",
+    )
+    p_boot.add_argument(
+        "--history-max-pages",
+        type=int,
+        default=HISTORY_MAX_PAGES_DEFAULT,
+        help="Max pages for paginated history sources.",
+    )
+    p_boot.set_defaults(func=cmd_bootstrap)
+
+    p_sync = sub.add_parser("sync", help="Sync New Macau draws, review latest, generate next prediction")
+    p_sync.add_argument("--csv", default=CSV_PATH_DEFAULT, help=f"CSV path (default: {CSV_PATH_DEFAULT})")
+    p_sync.add_argument(
+        "--source",
+        choices=["latest", "history", "csv", "auto"],
+        default="auto",
+        help="Data source mode",
+    )
+    p_sync.add_argument("--latest-url", default=LATEST_URL_DEFAULT, help="New Macau latest result JSON URL")
+    p_sync.add_argument(
+        "--history-url",
+        action="append",
+        default=[],
+        help="New Macau history API template or other JSON/CSV URL. Can be repeated or comma-separated.",
     )
     p_sync.add_argument(
-        "--third-party-max-pages",
+        "--history-max-pages",
         type=int,
-        default=THIRD_PARTY_MAX_PAGES_DEFAULT,
-        help="Max pages for HTML-style third-party sources (e.g. Lottolyzer).",
+        default=HISTORY_MAX_PAGES_DEFAULT,
+        help="Max pages for paginated history sources.",
     )
     p_sync.add_argument("--require-continuity", action="store_true", default=True, help="Fail update when issue sequence has gaps")
     p_sync.add_argument("--no-require-continuity", dest="require_continuity", action="store_false", help="Allow gaps")
@@ -1822,11 +1811,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync.set_defaults(func=cmd_sync)
 
     p_predict = sub.add_parser("predict", help="Generate predictions for next or specified issue")
-    p_predict.add_argument("--issue", help="Target issue, e.g. 26/023")
+    p_predict.add_argument("--issue", help="Target New Macau issue, e.g. 2026147")
     p_predict.set_defaults(func=cmd_predict)
 
     p_review = sub.add_parser("review", help="Review pending runs for latest or specified issue")
-    p_review.add_argument("--issue", help="Issue to review, e.g. 26/022")
+    p_review.add_argument("--issue", help="Issue to review, e.g. 2026146")
     p_review.set_defaults(func=cmd_review)
 
     p_show = sub.add_parser("show", help="Show local dashboard summary")
