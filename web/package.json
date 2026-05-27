@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=20 <21",
-    "npm": ">=10 <11"
+    "node": "24.x",
+    "npm": ">=11 <12"
   },
   "scripts": {
     "dev": "next dev",
