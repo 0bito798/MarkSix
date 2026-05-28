@@ -25,7 +25,7 @@ export default async function PredictionsPage() {
     where: { issueNo: macauIssueWhere().issueNo },
     include: {
       picks: {
-        orderBy: { rank: "asc" },
+        orderBy: { number: "asc" },
       },
     },
     orderBy: { createdAt: "desc" },
