@@ -735,11 +735,28 @@ tbody tr:hover td {
   }
 
   .pagination {
-    align-items: stretch;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: nowrap;
   }
 
   .page-list {
-    width: 100%;
+    width: auto;
+    justify-content: center;
+    flex: 1 1 auto;
+    min-width: 40px;
+  }
+
+  .pagination > .page-link {
+    flex: 0 0 auto;
+    min-width: 68px;
+    padding: 0 10px;
+  }
+
+  .page-list .page-link {
+    min-width: 40px;
+    padding: 0 10px;
   }
 
   .card-head {
