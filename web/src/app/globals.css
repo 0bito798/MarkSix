@@ -327,6 +327,35 @@ img {
   font-weight: 700;
 }
 
+.review-filter-panel {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.review-filter-row {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.filter-label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.inline-link {
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .special-chip {
   color: #7c2d12;
   background: rgba(217, 119, 6, 0.16);
@@ -733,6 +762,11 @@ tbody tr:hover td {
 
   .toggle-link {
     flex: 1 1 0;
+  }
+
+  .review-filter-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
 
   .numbers {
