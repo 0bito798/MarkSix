@@ -29,6 +29,7 @@ const featuredStrategyIds = [
   "hot_special_v1",
   "cold_special_v1",
   "knowledge_mix_v1",
+  "markov_special_v1",
 ] as const;
 
 export default async function HomePage() {
@@ -62,7 +63,7 @@ export default async function HomePage() {
         <div className="hero-copy">
           <p className="eyebrow">Vercel Special Number Predictor</p>
           <h2>新澳门六合彩特别号码预测</h2>
-          <div className="scheme-list">
+          <div className="strategy-status-grid">
             {featuredStrategyIds.map((strategy) => (
               <p key={strategy} className="scheme-item">
                 <strong>{strategyMeta[strategy].name}</strong>

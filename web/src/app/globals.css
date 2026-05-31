@@ -160,7 +160,8 @@ img {
   line-height: 1.65;
 }
 
-.scheme-list {
+.scheme-list,
+.strategy-status-grid {
   display: grid;
   gap: 10px;
   margin-top: 10px;
@@ -718,7 +719,8 @@ tbody tr:hover td {
     gap: 8px;
   }
 
-  .scheme-list {
+  .scheme-list,
+  .strategy-status-grid {
     grid-template-columns: 1fr;
   }
 
