@@ -14,6 +14,15 @@ import { type StrategyId, type StrategyResult } from "@/lib/types";
 
 type NumberMap = Map<number, number>;
 type StringMap = Map<string, number>;
+type MarkovTransitionProfile = {
+  transitionScores: NumberMap;
+  specialTransitionScores: NumberMap;
+  secondOrderScores: NumberMap;
+  phaseTransitionScores: NumberMap;
+  attributeScores: NumberMap;
+  latestPhase: string;
+  latestSpecial?: number;
+};
 
 const RECENT_SPECIAL_PENALTY = new Set([1, 2]);
 
@@ -97,6 +106,276 @@ function transitionMap(draws: Draw[]): NumberMap {
   }
 
   return normalizeNumberMap(scores);
+}
+
+function stateNumbers(draw: Draw, includeSpecial = true): number[] {
+  const seen = new Set<number>();
+  const values = includeSpecial ? [...decodeDrawNumbers(draw), draw.specialNumber] : decodeDrawNumbers(draw);
+  return values.filter((number) => {
+    if (!Number.isInteger(number) || number < 1 || number > 49 || seen.has(number)) {
+      return false;
+    }
+    seen.add(number);
+    return true;
+  });
+}
+
+function markovZone(number: number): string {
+  if (number <= 16) {
+    return "low";
+  }
+  if (number <= 33) {
+    return "mid";
+  }
+  return "high";
+}
+
+function markovAttributes(number: number): Record<string, string> {
+  return {
+    color: getWaveColor(number),
+    parity: number % 2 === 0 ? "even" : "odd",
+    zone: markovZone(number),
+    tail: String(number % 10),
+  };
+}
+
+function markovPhase(draws: Draw[]): string {
+  const counts = new Map<string, number>();
+  for (const draw of draws.slice(0, 12)) {
+    for (const number of stateNumbers(draw)) {
+      const zone = markovZone(number);
+      counts.set(zone, (counts.get(zone) ?? 0) + 1);
+    }
+  }
+
+  const total = [...counts.values()].reduce((sum, value) => sum + value, 0);
+  if (total <= 0) {
+    return "neutral";
+  }
+
+  const dominant = Math.max(...counts.values()) / total;
+  if (dominant >= 0.48) {
+    return "concentrated";
+  }
+  if ([...counts.values()].filter((value) => value > 0).length >= 3 && dominant <= 0.4) {
+    return "dispersed";
+  }
+  return "neutral";
+}
+
+function markovProbability(numerator: number, denominator: number, minSamples: number): number {
+  if (denominator <= 0) {
+    return 0;
+  }
+  const confidence = Math.min(1, Math.max(0.15, denominator / Math.max(minSamples, 1)));
+  return (numerator / denominator) * confidence;
+}
+
+function normalizePlainNumberMap(map: Record<number, number>): NumberMap {
+  return normalizeNumberMap(new Map(ALL_NUMBERS.map((number) => [number, map[number] ?? 0])));
+}
+
+function scoreAttributeTransition(
+  candidate: number,
+  latestSpecial: number | undefined,
+  profile: Map<string, Map<string, Map<string, number>>>,
+): number {
+  if (!latestSpecial) {
+    return 0;
+  }
+
+  const sourceState = markovAttributes(latestSpecial);
+  const candidateState = markovAttributes(candidate);
+  let total = 0;
+  let used = 0;
+  for (const [attr, sourceValue] of Object.entries(sourceState)) {
+    const targetValue = candidateState[attr];
+    total += profile.get(attr)?.get(sourceValue)?.get(targetValue) ?? 0;
+    used += 1;
+  }
+  return total / Math.max(used, 1);
+}
+
+export function buildMarkovTransitionProfile(
+  draws: Draw[],
+  options: { window?: number; decay?: number; sourceSpecialWeight?: number; minSamples?: number } = {},
+): MarkovTransitionProfile {
+  const empty = createNumberMap();
+  if (draws.length < 2) {
+    return {
+      transitionScores: empty,
+      specialTransitionScores: createNumberMap(),
+      secondOrderScores: createNumberMap(),
+      phaseTransitionScores: createNumberMap(),
+      attributeScores: createNumberMap(),
+      latestPhase: "neutral",
+      latestSpecial: draws[0]?.specialNumber,
+    };
+  }
+
+  const windowSize = Math.max(2, Math.min(options.window ?? 80, draws.length));
+  const decay = options.decay ?? 0.985;
+  const sourceSpecialWeight = options.sourceSpecialWeight ?? 1.28;
+  const minSamples = options.minSamples ?? 3;
+  const ordered = draws.slice(0, windowSize).reverse();
+  const transitions = new Map<number, NumberMap>(ALL_NUMBERS.map((number) => [number, createNumberMap()]));
+  const specialTransitions = new Map<number, NumberMap>(ALL_NUMBERS.map((number) => [number, createNumberMap()]));
+  const secondOrderTransitions = new Map<string, number>();
+  const secondOrderTotals = new Map<string, number>();
+  const phaseTransitions = new Map<string, Map<number, NumberMap>>();
+  const phaseTotals = new Map<string, NumberMap>();
+  const attributeCounts = new Map<string, Map<string, Map<string, number>>>();
+  const totals = createNumberMap();
+  const specialTotals = createNumberMap();
+
+  for (let index = 1; index < ordered.length; index += 1) {
+    const previousPrevious = index >= 2 ? ordered[index - 2] : undefined;
+    const sources = stateNumbers(ordered[index - 1]);
+    const previousSpecial = ordered[index - 1].specialNumber;
+    const currentSpecial = ordered[index].specialNumber;
+    const targets = stateNumbers(ordered[index]);
+    const weight = decay ** Math.max(0, ordered.length - index - 1);
+    const phase = markovPhase(ordered.slice(Math.max(0, index - 12), index).reverse());
+    if (!phaseTransitions.has(phase)) {
+      phaseTransitions.set(phase, new Map(ALL_NUMBERS.map((number) => [number, createNumberMap()])));
+      phaseTotals.set(phase, createNumberMap());
+    }
+
+    for (const source of sources) {
+      const sourceWeight = weight * (source === previousSpecial ? sourceSpecialWeight : 1);
+      totals.set(source, (totals.get(source) ?? 0) + sourceWeight);
+      phaseTotals.get(phase)?.set(source, (phaseTotals.get(phase)?.get(source) ?? 0) + sourceWeight);
+      const row = transitions.get(source);
+      const phaseRow = phaseTransitions.get(phase)?.get(source);
+      if (!row) {
+        continue;
+      }
+      for (const target of targets) {
+        row.set(target, (row.get(target) ?? 0) + sourceWeight);
+        phaseRow?.set(target, (phaseRow.get(target) ?? 0) + sourceWeight);
+      }
+      specialTotals.set(source, (specialTotals.get(source) ?? 0) + sourceWeight);
+      specialTransitions.get(source)?.set(
+        currentSpecial,
+        (specialTransitions.get(source)?.get(currentSpecial) ?? 0) + sourceWeight,
+      );
+    }
+
+    if (previousPrevious) {
+      const firstSources = stateNumbers(previousPrevious);
+      for (const firstSource of firstSources) {
+        for (const secondSource of sources) {
+          const pairKey = `${firstSource}:${secondSource}`;
+          const pairWeight = weight * (secondSource === previousSpecial ? 1.18 : 1);
+          secondOrderTotals.set(pairKey, (secondOrderTotals.get(pairKey) ?? 0) + pairWeight);
+          for (const target of targets) {
+            const key = `${pairKey}:${target}`;
+            secondOrderTransitions.set(key, (secondOrderTransitions.get(key) ?? 0) + pairWeight);
+          }
+        }
+      }
+    }
+
+    const previousAttrs = markovAttributes(previousSpecial);
+    const currentAttrs = markovAttributes(currentSpecial);
+    for (const [attr, sourceValue] of Object.entries(previousAttrs)) {
+      const targetValue = currentAttrs[attr];
+      if (!attributeCounts.has(attr)) {
+        attributeCounts.set(attr, new Map());
+      }
+      const attrMap = attributeCounts.get(attr)!;
+      if (!attrMap.has(sourceValue)) {
+        attrMap.set(sourceValue, new Map());
+      }
+      const targetMap = attrMap.get(sourceValue)!;
+      targetMap.set(targetValue, (targetMap.get(targetValue) ?? 0) + weight);
+    }
+  }
+
+  const attributeProfile = new Map<string, Map<string, Map<string, number>>>();
+  for (const [attr, sourceMap] of attributeCounts.entries()) {
+    attributeProfile.set(attr, new Map());
+    for (const [sourceValue, targetMap] of sourceMap.entries()) {
+      const total = [...targetMap.values()].reduce((sum, value) => sum + value, 0) || 1;
+      attributeProfile.get(attr)!.set(
+        sourceValue,
+        new Map([...targetMap.entries()].map(([targetValue, value]) => [targetValue, value / total])),
+      );
+    }
+  }
+
+  const latestSources = stateNumbers(draws[0]);
+  const latestSecondSources = draws[1] ? stateNumbers(draws[1]) : [];
+  const latestPhase = markovPhase(draws.slice(0, 12));
+  const transitionScores: Record<number, number> = {};
+  const specialTransitionScores: Record<number, number> = {};
+  const secondOrderScores: Record<number, number> = {};
+  const phaseTransitionScores: Record<number, number> = {};
+  const attributeScores: Record<number, number> = {};
+
+  for (const candidate of ALL_NUMBERS) {
+    transitionScores[candidate] = 0;
+    specialTransitionScores[candidate] = 0;
+    secondOrderScores[candidate] = 0;
+    phaseTransitionScores[candidate] = 0;
+
+    for (const source of stateNumbers(draws[0])) {
+      const total = totals.get(source) ?? 0;
+      transitionScores[candidate] += markovProbability(transitions.get(source)?.get(candidate) ?? 0, total, minSamples);
+      specialTransitionScores[candidate] += markovProbability(
+        specialTransitions.get(source)?.get(candidate) ?? 0,
+        specialTotals.get(source) ?? 0,
+        minSamples,
+      );
+      phaseTransitionScores[candidate] += markovProbability(
+        phaseTransitions.get(latestPhase)?.get(source)?.get(candidate) ?? 0,
+        phaseTotals.get(latestPhase)?.get(source) ?? 0,
+        minSamples,
+      );
+    }
+
+    for (const firstSource of latestSecondSources) {
+      for (const secondSource of latestSources) {
+        const pairKey = `${firstSource}:${secondSource}`;
+        secondOrderScores[candidate] += markovProbability(
+          secondOrderTransitions.get(`${pairKey}:${candidate}`) ?? 0,
+          secondOrderTotals.get(pairKey) ?? 0,
+          minSamples,
+        );
+      }
+    }
+
+    attributeScores[candidate] = scoreAttributeTransition(candidate, draws[0].specialNumber, attributeProfile);
+  }
+
+  return {
+    transitionScores: normalizePlainNumberMap(transitionScores),
+    specialTransitionScores: normalizePlainNumberMap(specialTransitionScores),
+    secondOrderScores: normalizePlainNumberMap(secondOrderScores),
+    phaseTransitionScores: normalizePlainNumberMap(phaseTransitionScores),
+    attributeScores: normalizePlainNumberMap(attributeScores),
+    latestPhase,
+    latestSpecial: draws[0].specialNumber,
+  };
+}
+
+export function buildMarkovTransitionScores(
+  draws: Draw[],
+  options?: { window?: number; decay?: number; targetSpecialOnly?: boolean; includeProfile?: false },
+): NumberMap;
+export function buildMarkovTransitionScores(
+  draws: Draw[],
+  options: { window?: number; decay?: number; includeProfile: true },
+): MarkovTransitionProfile;
+export function buildMarkovTransitionScores(
+  draws: Draw[],
+  options: { window?: number; decay?: number; targetSpecialOnly?: boolean; includeProfile?: boolean } = {},
+): NumberMap | MarkovTransitionProfile {
+  const profile = buildMarkovTransitionProfile(draws, options);
+  if (options.includeProfile) {
+    return profile;
+  }
+  return options.targetSpecialOnly ? profile.specialTransitionScores : profile.transitionScores;
 }
 
 function zodiacFrequencyMap(draws: Draw[], year: number): StringMap {
@@ -236,6 +515,11 @@ export const strategyMeta: Record<StrategyId, { name: string; description: strin
   cold_special_v1: {
     name: "冷门号码方案",
     description: "优先选择长遗漏且具回补条件的特别号候选号码",
+    limit: 18,
+  },
+  markov_special_v1: {
+    name: "马尔科夫转移方案",
+    description: "按最近开奖到开奖的转移概率和特别号转移关系筛选候选号码",
     limit: 18,
   },
   knowledge_mix_v1: {
@@ -383,6 +667,40 @@ export function generateStrategyResult(strategy: StrategyId, recentDraws: Draw[]
     };
   }
 
+  if (strategy === "markov_special_v1") {
+    const profile = buildMarkovTransitionProfile(longWindow, { window: 80 });
+    const markovScores = applyRecentPenalty(
+      recentDraws,
+      new Map(
+        ALL_NUMBERS.map((number) => [
+          number,
+          (profile.transitionScores.get(number) ?? 0) * 0.42 +
+            (profile.specialTransitionScores.get(number) ?? 0) * 0.16 +
+            (profile.secondOrderScores.get(number) ?? 0) * 0.14 +
+            (profile.phaseTransitionScores.get(number) ?? 0) * 0.08 +
+            (profile.attributeScores.get(number) ?? 0) * 0.06 +
+            (hotShort.get(number) ?? 0) * 0.06 +
+            (mainHot.get(number) ?? 0) * 0.04 +
+            (cold.get(number) ?? 0) * 0.04,
+        ]),
+      ),
+    );
+
+    return {
+      strategy,
+      strategyVersion: strategy,
+      picks: pickTopCandidates(markovScores, strategyMeta[strategy].limit, (number, score) =>
+        buildReason([
+          ["Markov", profile.transitionScores.get(number) ?? 0],
+          ["special transition", profile.specialTransitionScores.get(number) ?? 0],
+          ["second order", profile.secondOrderScores.get(number) ?? 0],
+          ["phase", profile.phaseTransitionScores.get(number) ?? 0],
+          ["score", score],
+        ]),
+      ),
+    };
+  }
+
   return {
     strategy,
     strategyVersion: strategy,
@@ -400,4 +718,8 @@ export function generateStrategyResult(strategy: StrategyId, recentDraws: Draw[]
 
 export function allStrategies(): StrategyId[] {
   return ["zodiac_special_v1", "hot_special_v1", "cold_special_v1", "knowledge_mix_v1"];
+}
+
+export function scheduledStrategies(): StrategyId[] {
+  return [...allStrategies(), "markov_special_v1"];
 }

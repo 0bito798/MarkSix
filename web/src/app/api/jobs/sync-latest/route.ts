@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { loadDrawRecords } from "@/lib/data-source";
 import { upsertDrawRecords } from "@/lib/history-store";
 import { generatePredictionsForNextIssue, reviewIssue } from "@/lib/prediction-service";
+import { scheduledStrategies } from "@/lib/strategies";
 
 function authorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET;
@@ -37,7 +38,7 @@ export async function GET(request: Request) {
       await reviewIssue(lastIssue);
     }
 
-    const nextIssue = await generatePredictionsForNextIssue();
+    const nextPrediction = await generatePredictionsForNextIssue(scheduledStrategies());
 
     return NextResponse.json({
       ok: true,
@@ -45,7 +46,8 @@ export async function GET(request: Request) {
       inserted: synced.inserted,
       updated: synced.updated,
       reviewedIssue: lastIssue,
-      generatedForIssue: nextIssue,
+      generatedForIssue: nextPrediction.issueNo,
+      createdRunIds: nextPrediction.createdRunIds,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

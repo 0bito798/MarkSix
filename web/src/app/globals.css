@@ -164,6 +164,7 @@ img {
   display: grid;
   gap: 10px;
   margin-top: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
 }
 
 .scheme-item {
@@ -174,6 +175,66 @@ img {
 
 .scheme-item strong {
   color: var(--fg);
+}
+
+.scheme-card {
+  margin: 0;
+  border: 1px solid rgba(135, 122, 94, 0.18);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.scheme-card strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--fg);
+}
+
+.scheme-card p {
+  margin: 0;
+  color: #374151;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.scheme-card.is-markov,
+.prediction-card.is-markov {
+  border-color: rgba(18, 64, 118, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.12) 0%, rgba(37, 99, 235, 0) 36%),
+    rgba(255, 255, 255, 0.7);
+}
+
+.strategy-status-grid,
+.summary-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.strategy-status-grid {
+  margin-top: 14px;
+}
+
+.strategy-status-grid > div,
+.summary-strip > div {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.strategy-status-grid strong,
+.summary-strip strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.summary-strip {
+  margin-bottom: 2px;
 }
 
 .issue-title {
@@ -602,6 +663,14 @@ tbody tr:hover td {
   background: rgba(255, 248, 233, 0.55);
 }
 
+tbody tr.is-markov-row td {
+  background: rgba(37, 99, 235, 0.055);
+}
+
+tbody tr.is-markov-row:hover td {
+  background: rgba(37, 99, 235, 0.095);
+}
+
 @media (max-width: 960px) {
   .container {
     margin: 20px auto;
@@ -626,6 +695,10 @@ tbody tr:hover td {
 
   .metric-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .summary-strip {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -714,6 +787,11 @@ tbody tr:hover td {
   .metric-grid {
     grid-template-columns: 1fr;
     gap: 8px;
+  }
+
+  .scheme-list,
+  .strategy-status-grid {
+    grid-template-columns: 1fr;
   }
 
   .history-balls {

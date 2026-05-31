@@ -27,9 +27,9 @@ async function run() {
     create: { key: BOOTSTRAP_FLAG, value: "true" },
   });
 
-  const issueNo = await generatePredictionsForNextIssue();
+  const prediction = await generatePredictionsForNextIssue();
   console.log(
-    `Bootstrap done. inserted=${synced.inserted}, updated=${synced.updated}, force=${force}, generated_predictions_for=${issueNo}`,
+    `Bootstrap done. inserted=${synced.inserted}, updated=${synced.updated}, force=${force}, generated_predictions_for=${prediction.issueNo}`,
   );
 }
 

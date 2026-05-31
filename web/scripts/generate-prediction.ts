@@ -2,8 +2,8 @@ import { prisma } from "../src/lib/prisma";
 import { generatePredictionsForNextIssue } from "../src/lib/prediction-service";
 
 async function run() {
-  const issueNo = await generatePredictionsForNextIssue();
-  console.log(`Generated predictions for ${issueNo}`);
+  const result = await generatePredictionsForNextIssue();
+  console.log(`Generated predictions for ${result.issueNo}`);
 }
 
 run()

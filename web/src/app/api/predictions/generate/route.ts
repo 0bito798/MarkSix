@@ -18,8 +18,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, issueNo: body.issueNo, createdRunIds });
     }
 
-    const issueNo = await generatePredictionsForNextIssue();
-    return NextResponse.json({ ok: true, issueNo });
+    const { issueNo, createdRunIds } = await generatePredictionsForNextIssue(body.strategies);
+    return NextResponse.json({ ok: true, issueNo, createdRunIds });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

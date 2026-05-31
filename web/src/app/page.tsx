@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { describeSpecialNumber, formatNumber, getWaveColor, inferYearFromIssue, macauIssueWhere } from "@/lib/marksix";
-import { strategyMeta } from "@/lib/strategies";
+import { scheduledStrategies, strategyMeta } from "@/lib/strategies";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -23,6 +23,8 @@ function waveClassName(number: number): string {
   }
   return "ball-green";
 }
+
+const scheduledStrategyIds = scheduledStrategies();
 
 export default async function HomePage() {
   const latestDraw = await prisma.draw.findFirst({
@@ -48,6 +50,7 @@ export default async function HomePage() {
     : [];
 
   const latestIssueYear = latestDraw ? inferYearFromIssue(latestDraw.issueNo, latestDraw.drawDate.getUTCFullYear()) : null;
+  const markovRun = pendingRuns.find((run) => run.strategy === "markov_special_v1");
 
   return (
     <section className="stack">
@@ -56,22 +59,15 @@ export default async function HomePage() {
           <p className="eyebrow">Vercel Special Number Predictor</p>
           <h2>新澳门六合彩特别号码预测</h2>
           <div className="scheme-list">
-            <p className="scheme-item">
-              <strong>生肖号码方案：</strong>
-              依据生肖热度、遗漏周期和历史转移节奏，筛选下期更可能出现的生肖特别号池。
-            </p>
-            <p className="scheme-item">
-              <strong>热门号码方案：</strong>
-              聚焦近期高频特别号，以及与正码联动明显的热门候选号码。
-            </p>
-            <p className="scheme-item">
-              <strong>冷门号码方案：</strong>
-              重点关注长遗漏、低热度但具备回补条件的特别号码。
-            </p>
-            <p className="scheme-item">
-              <strong>综合方案：</strong>
-              综合生肖、冷热、波色、分区与转移关系，形成平衡型特别号候选池。
-            </p>
+            {scheduledStrategyIds.map((strategy) => (
+              <article
+                key={strategy}
+                className={`scheme-card ${strategy === "markov_special_v1" ? "is-markov" : ""}`}
+              >
+                <strong>{strategyMeta[strategy].name}</strong>
+                <p>{strategyMeta[strategy].description}</p>
+              </article>
+            ))}
           </div>
         </div>
 
@@ -85,6 +81,18 @@ export default async function HomePage() {
             </p>
             {latestIssueYear ? (
               <p className="special-chip">特别号 {describeSpecialNumber(latestDraw.specialNumber, latestIssueYear)}</p>
+            ) : null}
+            {latestPendingIssue ? (
+              <div className="strategy-status-grid">
+                <div>
+                  <span className="kv">预测期号</span>
+                  <strong>{latestPendingIssue.issueNo}</strong>
+                </div>
+                <div>
+                  <span className="kv">马尔科夫</span>
+                  <strong>{markovRun ? "已生成" : "待生成"}</strong>
+                </div>
+              </div>
             ) : null}
           </div>
         ) : (
@@ -100,7 +108,7 @@ export default async function HomePage() {
           <div>
             <h3 className="issue-title">下期预测：{latestPendingIssue.issueNo}</h3>
           </div>
-            <p className="kv section-copy">4 套新澳门六合彩特别号码方案均限制在 30 个候选以内，可直接用于复盘。</p>
+            <p className="kv section-copy">{scheduledStrategyIds.length} 套新澳门六合彩特别号码方案已接入定时生成，含单独马尔科夫转移方案。</p>
         </div>
       ) : null}
 
@@ -142,7 +150,10 @@ export default async function HomePage() {
 
       <div className="grid">
         {pendingRuns.map((run) => (
-          <article key={run.id} className="card">
+          <article
+            key={run.id}
+            className={`card prediction-card ${run.strategy === "markov_special_v1" ? "is-markov" : ""}`}
+          >
             <div className="card-head">
               <h3>{strategyMeta[run.strategy as keyof typeof strategyMeta]?.name ?? run.strategy}</h3>
               <span className="badge">{run.picks.length} 个候选</span>

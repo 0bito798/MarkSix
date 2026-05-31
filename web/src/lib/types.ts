@@ -10,6 +10,7 @@ export type StrategyId =
   | "zodiac_special_v1"
   | "hot_special_v1"
   | "cold_special_v1"
+  | "markov_special_v1"
   | "knowledge_mix_v1";
 
 export type StrategyResult = {

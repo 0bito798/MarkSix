@@ -74,7 +74,7 @@ export async function generatePredictionsForIssue(issueNo: string, strategyIds?:
   return createdRuns;
 }
 
-export async function generatePredictionsForNextIssue() {
+export async function generatePredictionsForNextIssue(strategyIds?: StrategyId[]) {
   const latest = await prisma.draw.findFirst({
     where: macauIssueWhere(),
     orderBy: { drawDate: "desc" },
@@ -86,8 +86,8 @@ export async function generatePredictionsForNextIssue() {
   }
 
   const targetIssue = nextIssueNo(latest.issueNo);
-  await generatePredictionsForIssue(targetIssue);
-  return targetIssue;
+  const createdRunIds = await generatePredictionsForIssue(targetIssue, strategyIds);
+  return { issueNo: targetIssue, createdRunIds };
 }
 
 export async function reviewIssue(issueNo: string) {

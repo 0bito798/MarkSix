@@ -1,11 +1,16 @@
 import { prisma } from "@/lib/prisma";
 import { formatNumber, getWaveColor, macauIssueWhere } from "@/lib/marksix";
-import { strategyMeta } from "@/lib/strategies";
+import { scheduledStrategies, strategyMeta } from "@/lib/strategies";
+import { type StrategyId } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const PAGE_SIZE = 50;
+const STRATEGY_OPTIONS: Array<{ value: "all" | StrategyId; label: string }> = [
+  { value: "all", label: "全部" },
+  ...scheduledStrategies().map((strategy) => ({ value: strategy, label: strategyMeta[strategy].name })),
+];
 
 function waveClassName(number: number): string {
   const wave = getWaveColor(number);
@@ -30,8 +35,22 @@ function parsePage(value?: string): number {
   return page;
 }
 
-function buildPredictionsHref(page: number): string {
-  return page > 1 ? `/predictions?page=${page}` : "/predictions";
+type StrategyFilter = "all" | StrategyId;
+
+function parseStrategy(value?: string): StrategyFilter {
+  return STRATEGY_OPTIONS.some((option) => option.value === value) ? (value as StrategyFilter) : "all";
+}
+
+function buildPredictionsHref(page: number, strategy: StrategyFilter): string {
+  const params = new URLSearchParams();
+  if (strategy !== "all") {
+    params.set("strategy", strategy);
+  }
+  if (page > 1) {
+    params.set("page", String(page));
+  }
+  const query = params.toString();
+  return query ? `/predictions?${query}` : "/predictions";
 }
 
 export default async function PredictionsPage({
@@ -41,10 +60,23 @@ export default async function PredictionsPage({
 }) {
   const resolvedSearchParams = (await searchParams) ?? {};
   const pageParam = resolvedSearchParams.page;
+  const strategyParam = resolvedSearchParams.strategy;
   const currentPage = parsePage(Array.isArray(pageParam) ? pageParam[0] : pageParam);
-  const predictionWhere = { issueNo: macauIssueWhere().issueNo };
+  const strategyFilter = parseStrategy(Array.isArray(strategyParam) ? strategyParam[0] : strategyParam);
+  const predictionWhere = {
+    issueNo: macauIssueWhere().issueNo,
+    ...(strategyFilter !== "all" ? { strategy: strategyFilter } : {}),
+  };
+  const allPredictionWhere = { issueNo: macauIssueWhere().issueNo };
 
   const totalPredictions = await prisma.predictionRun.count({ where: predictionWhere });
+  const strategyCounts = await prisma.predictionRun.groupBy({
+    by: ["strategy"],
+    where: allPredictionWhere,
+    _count: { _all: true },
+  });
+  const strategyCountMap = new Map(strategyCounts.map((item) => [item.strategy, item._count._all]));
+  const markovCount = strategyCountMap.get("markov_special_v1") ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalPredictions / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
   const predictionHistory = await prisma.predictionRun.findMany({
@@ -74,7 +106,22 @@ export default async function PredictionsPage({
           <p className="eyebrow">Predictions</p>
           <h2>预测历史</h2>
         </div>
-        <p className="kv">展示数据库中已经保存的特别号码预测批次，包括目标期号、策略、生成时间和候选号。</p>
+        <p className="kv">展示数据库中已经保存的特别号码预测批次，马尔科夫转移方案可单独筛选和追踪。</p>
+      </div>
+
+      <div className="summary-strip">
+        <div>
+          <span className="kv">全部记录</span>
+          <strong>{strategyCounts.reduce((sum, item) => sum + item._count._all, 0)}</strong>
+        </div>
+        <div>
+          <span className="kv">马尔科夫记录</span>
+          <strong>{markovCount}</strong>
+        </div>
+        <div>
+          <span className="kv">当前筛选</span>
+          <strong>{strategyFilter === "all" ? "全部策略" : strategyMeta[strategyFilter].name}</strong>
+        </div>
       </div>
 
       <div className="card">
@@ -84,6 +131,24 @@ export default async function PredictionsPage({
             <p className="kv">当前显示第 {startIndex} - {endIndex} 条，共 {totalPredictions} 条</p>
           </div>
           <span className="badge">{PAGE_SIZE} 条 / 页</span>
+        </div>
+
+        <div className="review-filter-panel">
+          <div className="review-filter-row">
+            <span className="filter-label">策略</span>
+            <div className="toggle-group">
+              {STRATEGY_OPTIONS.map((option) => (
+                <a
+                  key={option.value}
+                  href={buildPredictionsHref(1, option.value)}
+                  className={`toggle-link ${strategyFilter === option.value ? "is-active" : ""}`}
+                  aria-current={strategyFilter === option.value ? "true" : undefined}
+                >
+                  {option.label}
+                </a>
+              ))}
+            </div>
+          </div>
         </div>
 
         {predictionHistory.length > 0 ? (
@@ -101,7 +166,7 @@ export default async function PredictionsPage({
                 </thead>
                 <tbody>
                   {predictionHistory.map((run) => (
-                    <tr key={run.id}>
+                    <tr key={run.id} className={run.strategy === "markov_special_v1" ? "is-markov-row" : undefined}>
                       <td>{run.issueNo}</td>
                       <td>{strategyMeta[run.strategy as keyof typeof strategyMeta]?.name ?? run.strategy}</td>
                       <td>{run.status === "REVIEWED" ? "已复盘" : "待开奖"}</td>
@@ -123,7 +188,7 @@ export default async function PredictionsPage({
 
             <div className="pagination">
               <a
-                href={safePage > 1 ? buildPredictionsHref(safePage - 1) : undefined}
+                href={safePage > 1 ? buildPredictionsHref(safePage - 1, strategyFilter) : undefined}
                 className={`page-link ${safePage <= 1 ? "is-disabled" : ""}`}
                 aria-disabled={safePage <= 1}
               >
@@ -134,7 +199,7 @@ export default async function PredictionsPage({
                 {visiblePages.map((page) => (
                   <a
                     key={page}
-                    href={buildPredictionsHref(page)}
+                    href={buildPredictionsHref(page, strategyFilter)}
                     className={`page-link ${page === safePage ? "is-active" : ""}`}
                     aria-current={page === safePage ? "page" : undefined}
                   >
@@ -144,7 +209,7 @@ export default async function PredictionsPage({
               </div>
 
               <a
-                href={safePage < totalPages ? buildPredictionsHref(safePage + 1) : undefined}
+                href={safePage < totalPages ? buildPredictionsHref(safePage + 1, strategyFilter) : undefined}
                 className={`page-link ${safePage >= totalPages ? "is-disabled" : ""}`}
                 aria-disabled={safePage >= totalPages}
               >
@@ -154,8 +219,14 @@ export default async function PredictionsPage({
           </>
         ) : (
           <div className="empty-state">
-            <p>当前数据库还没有预测记录。</p>
-            <p className="kv">可调用 <code>POST /api/predictions/generate</code> 或先执行一次同步任务。</p>
+            <p>{strategyFilter === "all" ? "当前数据库还没有预测记录。" : "当前筛选下没有预测记录。"}</p>
+            <p className="kv">
+              {strategyFilter === "all" ? (
+                <>可调用 <code>POST /api/predictions/generate</code> 或先执行一次同步任务。</>
+              ) : (
+                <a href="/predictions" className="inline-link">查看全部策略</a>
+              )}
+            </p>
           </div>
         )}
       </div>

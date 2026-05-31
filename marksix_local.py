@@ -9,6 +9,7 @@ import json
 import re
 import sqlite3
 import time
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -31,9 +32,11 @@ STRATEGY_LABELS = {
     "cold_rebound_v1": "冷号回补",
     "momentum_v1": "近期动量",
     "ensemble_v2": "集成投票",
+    "markov_v1": "马尔科夫转移",
     "pattern_mined_v1": "规律挖掘",
 }
 STRATEGY_IDS = ["balanced_v1", "hot_v1", "cold_rebound_v1", "momentum_v1", "ensemble_v2", "pattern_mined_v1"]
+EXTRA_STRATEGY_IDS = ["markov_v1"]
 
 
 @dataclass
@@ -700,6 +703,14 @@ def load_recent_draws(conn: sqlite3.Connection, limit: int = 120) -> List[List[i
     return [json.loads(r["numbers_json"]) for r in rows]
 
 
+def load_recent_draws_with_specials(conn: sqlite3.Connection, limit: int = 120) -> Tuple[List[List[int]], List[int]]:
+    rows = conn.execute(
+        "SELECT numbers_json, special_number FROM draws ORDER BY draw_date DESC, issue_no DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [json.loads(r["numbers_json"]) for r in rows], [int(r["special_number"]) for r in rows]
+
+
 def _normalize(score_map: Dict[int, float]) -> Dict[int, float]:
     values = list(score_map.values())
     mn, mx = min(values), max(values)
@@ -731,6 +742,260 @@ def _momentum_map(draws: List[List[int]]) -> Dict[int, float]:
         for n in draw:
             m[n] += w
     return m
+
+
+def _state_numbers(draw: Sequence[int], special: Optional[int] = None) -> List[int]:
+    seen = set()
+    state: List[int] = []
+    values = list(draw)
+    if special is not None:
+        values.append(special)
+
+    for value in values:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= number <= 49 and number not in seen:
+            seen.add(number)
+            state.append(number)
+    return state
+
+
+def _markov_zone(number: int) -> str:
+    if number <= 16:
+        return "low"
+    if number <= 33:
+        return "mid"
+    return "high"
+
+
+def _markov_attributes(number: int) -> Dict[str, str]:
+    return {
+        "parity": "odd" if number % 2 else "even",
+        "zone": _markov_zone(number),
+        "tail": str(number % 10),
+    }
+
+
+def _markov_phase(draws: Sequence[Sequence[int]], specials: Optional[Sequence[int]] = None) -> str:
+    recent = list(draws[:12])
+    if not recent:
+        return "neutral"
+
+    zones = [_markov_zone(number) for draw in recent for number in draw]
+    if specials:
+        zones.extend(_markov_zone(int(number)) for number in list(specials[:12]) if 1 <= int(number) <= 49)
+    counts = Counter(zones)
+    if not counts:
+        return "neutral"
+
+    dominant = counts.most_common(1)[0][1] / max(sum(counts.values()), 1)
+    if dominant >= 0.48:
+        return "concentrated"
+    if len([value for value in counts.values() if value > 0]) >= 3 and dominant <= 0.4:
+        return "dispersed"
+    return "neutral"
+
+
+def _markov_probability(numerator: float, denominator: float, min_samples: int = 3) -> float:
+    if denominator <= 0:
+        return 0.0
+    confidence = min(1.0, max(0.15, denominator / max(float(min_samples), 1.0)))
+    return (numerator / denominator) * confidence
+
+
+def _normalize_float_map(score_map: Dict[int, float]) -> Dict[int, float]:
+    values = list(score_map.values())
+    if not values:
+        return {n: 0.0 for n in ALL_NUMBERS}
+    mn, mx = min(values), max(values)
+    if mx == mn:
+        return {k: 0.0 for k in score_map}
+    return {k: (v - mn) / (mx - mn) for k, v in score_map.items()}
+
+
+def _score_markov_attribute_transition(
+    candidate: int,
+    latest_special: Optional[int],
+    attribute_profile: Dict[str, Dict[str, Dict[str, float]]],
+) -> float:
+    if not latest_special:
+        return 0.0
+
+    source_state = _markov_attributes(latest_special)
+    candidate_state = _markov_attributes(candidate)
+    total = 0.0
+    used = 0
+    for attr, source_value in source_state.items():
+        target_value = candidate_state.get(attr)
+        if not target_value:
+            continue
+        total += attribute_profile.get(attr, {}).get(source_value, {}).get(target_value, 0.0)
+        used += 1
+    return total / max(used, 1)
+
+
+def _markov_transition_profile(
+    draws: List[List[int]],
+    specials: Optional[List[int]] = None,
+    window: int = 80,
+    decay: float = 0.985,
+    source_special_weight: float = 1.28,
+    min_samples: int = 3,
+) -> Dict[str, object]:
+    if len(draws) < 2:
+        empty = {n: 0.0 for n in ALL_NUMBERS}
+        return {
+            "transition_scores": empty,
+            "special_transition_scores": dict(empty),
+            "second_order_scores": dict(empty),
+            "phase_transition_scores": dict(empty),
+            "attribute_scores": dict(empty),
+            "attribute_profile": {},
+            "latest_phase": "neutral",
+            "latest_special": specials[0] if specials else None,
+        }
+
+    window_size = max(2, min(int(window), len(draws)))
+    recent_draws = draws[:window_size]
+    recent_specials = (specials or [])[:window_size]
+    ordered_draws = list(reversed(recent_draws))
+    ordered_specials = list(reversed(recent_specials)) if recent_specials else []
+    transitions = {n: {candidate: 0.0 for candidate in ALL_NUMBERS} for n in ALL_NUMBERS}
+    special_transitions = {n: {candidate: 0.0 for candidate in ALL_NUMBERS} for n in ALL_NUMBERS}
+    second_order_transitions: Dict[Tuple[int, int, int], float] = {}
+    second_order_totals: Dict[Tuple[int, int], float] = {}
+    phase_transitions: Dict[str, Dict[int, Dict[int, float]]] = {}
+    phase_totals: Dict[str, Dict[int, float]] = {}
+    attribute_counts: Dict[str, Dict[str, Dict[str, float]]] = {"parity": {}, "zone": {}, "tail": {}}
+    totals = {n: 0.0 for n in ALL_NUMBERS}
+    special_totals = {n: 0.0 for n in ALL_NUMBERS}
+
+    for index in range(1, len(ordered_draws)):
+        previous_previous = ordered_draws[index - 2] if index >= 2 else None
+        previous_previous_special = ordered_specials[index - 2] if index >= 2 and index - 2 < len(ordered_specials) else None
+        previous_special = ordered_specials[index - 1] if index - 1 < len(ordered_specials) else None
+        current_special = ordered_specials[index] if index < len(ordered_specials) else None
+        sources = _state_numbers(ordered_draws[index - 1], previous_special)
+        targets = _state_numbers(ordered_draws[index], current_special)
+        weight = decay ** max(0, len(ordered_draws) - index - 1)
+        phase_history = list(reversed(ordered_draws[max(0, index - 12):index]))
+        phase_specials = list(reversed(ordered_specials[max(0, index - 12):index])) if ordered_specials else []
+        phase = _markov_phase(phase_history, phase_specials)
+        phase_transitions.setdefault(
+            phase,
+            {n: {candidate: 0.0 for candidate in ALL_NUMBERS} for n in ALL_NUMBERS},
+        )
+        phase_totals.setdefault(phase, {n: 0.0 for n in ALL_NUMBERS})
+
+        for source in sources:
+            source_weight = weight * (source_special_weight if previous_special is not None and source == previous_special else 1.0)
+            totals[source] += source_weight
+            phase_totals[phase][source] += source_weight
+            for target in targets:
+                transitions[source][target] += source_weight
+                phase_transitions[phase][source][target] += source_weight
+            if current_special is not None:
+                special_totals[source] += source_weight
+                special_transitions[source][current_special] += source_weight
+
+        if previous_previous is not None:
+            first_sources = _state_numbers(previous_previous, previous_previous_special)
+            for first_source in first_sources:
+                for second_source in sources:
+                    pair = (first_source, second_source)
+                    pair_weight = weight * (1.18 if previous_special is not None and second_source == previous_special else 1.0)
+                    second_order_totals[pair] = second_order_totals.get(pair, 0.0) + pair_weight
+                    for target in targets:
+                        key = (first_source, second_source, target)
+                        second_order_transitions[key] = second_order_transitions.get(key, 0.0) + pair_weight
+
+        if previous_special is not None and current_special is not None:
+            previous_attrs = _markov_attributes(previous_special)
+            current_attrs = _markov_attributes(current_special)
+            for attr, source_value in previous_attrs.items():
+                target_value = current_attrs[attr]
+                attribute_counts.setdefault(attr, {}).setdefault(source_value, {})
+                bucket = attribute_counts[attr][source_value]
+                bucket[target_value] = bucket.get(target_value, 0.0) + weight
+
+    attribute_profile: Dict[str, Dict[str, Dict[str, float]]] = {}
+    for attr, source_map in attribute_counts.items():
+        attribute_profile[attr] = {}
+        for source_value, target_counts in source_map.items():
+            total = sum(target_counts.values()) or 1.0
+            attribute_profile[attr][source_value] = {
+                target_value: value / total for target_value, value in target_counts.items()
+            }
+
+    latest_special = recent_specials[0] if recent_specials else None
+    latest_sources = _state_numbers(recent_draws[0], latest_special)
+    latest_second_sources = _state_numbers(recent_draws[1], recent_specials[1] if len(recent_specials) > 1 else None)
+    latest_phase = _markov_phase(recent_draws[:12], recent_specials[:12] if recent_specials else None)
+
+    transition_scores = {n: 0.0 for n in ALL_NUMBERS}
+    special_scores = {n: 0.0 for n in ALL_NUMBERS}
+    second_order_scores = {n: 0.0 for n in ALL_NUMBERS}
+    phase_scores = {n: 0.0 for n in ALL_NUMBERS}
+    attribute_scores = {n: 0.0 for n in ALL_NUMBERS}
+
+    for candidate in ALL_NUMBERS:
+        for source in latest_sources:
+            transition_scores[candidate] += _markov_probability(
+                transitions[source][candidate],
+                totals[source],
+                min_samples=min_samples,
+            )
+            special_scores[candidate] += _markov_probability(
+                special_transitions[source][candidate],
+                special_totals[source],
+                min_samples=min_samples,
+            )
+            if latest_phase in phase_transitions:
+                phase_scores[candidate] += _markov_probability(
+                    phase_transitions[latest_phase][source][candidate],
+                    phase_totals[latest_phase][source],
+                    min_samples=min_samples,
+                )
+
+        for first_source in latest_second_sources:
+            for second_source in latest_sources:
+                pair = (first_source, second_source)
+                second_order_scores[candidate] += _markov_probability(
+                    second_order_transitions.get((first_source, second_source, candidate), 0.0),
+                    second_order_totals.get(pair, 0.0),
+                    min_samples=min_samples,
+                )
+
+        attribute_scores[candidate] = _score_markov_attribute_transition(
+            candidate,
+            latest_special,
+            attribute_profile,
+        )
+
+    return {
+        "transition_scores": _normalize_float_map(transition_scores),
+        "special_transition_scores": _normalize_float_map(special_scores),
+        "second_order_scores": _normalize_float_map(second_order_scores),
+        "phase_transition_scores": _normalize_float_map(phase_scores),
+        "attribute_scores": _normalize_float_map(attribute_scores),
+        "attribute_profile": attribute_profile,
+        "latest_phase": latest_phase,
+        "latest_special": latest_special,
+    }
+
+
+def _markov_score_map(
+    draws: List[List[int]],
+    specials: Optional[List[int]] = None,
+    window: int = 80,
+    decay: float = 0.985,
+    target_special_only: bool = False,
+) -> Dict[int, float]:
+    profile = _markov_transition_profile(draws, specials=specials, window=window, decay=decay)
+    key = "special_transition_scores" if target_special_only else "transition_scores"
+    return dict(profile[key])  # type: ignore[arg-type]
 
 
 def _pair_affinity_map(draws: List[List[int]], window: int = 200) -> Dict[int, float]:
@@ -1040,6 +1305,7 @@ def generate_strategy(
     draws: List[List[int]],
     strategy: str,
     mined_config: Optional[Dict[str, float]] = None,
+    specials: Optional[List[int]] = None,
 ) -> Tuple[List[Tuple[int, int, float, str]], int, float, Dict[int, float]]:
     if strategy == "hot_v1":
         return _apply_weight_config(draws, {"window": 80.0, "w_freq": 0.8, "w_omit": 0.0, "w_mom": 0.2}, "热号策略")
@@ -1049,6 +1315,39 @@ def generate_strategy(
         return _apply_weight_config(draws, {"window": 80.0, "w_freq": 0.1, "w_omit": 0.0, "w_mom": 0.9}, "近期动量")
     if strategy == "ensemble_v2":
         return _ensemble_strategy(draws, mined_config)
+    if strategy == "markov_v1":
+        window = draws[: min(len(draws), 80)]
+        profile = _markov_transition_profile(window, specials=specials, window=80)
+        markov = profile["transition_scores"]  # type: ignore[assignment]
+        special_markov = profile["special_transition_scores"]  # type: ignore[assignment]
+        second_order = profile["second_order_scores"]  # type: ignore[assignment]
+        phase = profile["phase_transition_scores"]  # type: ignore[assignment]
+        attr = profile["attribute_scores"]  # type: ignore[assignment]
+        freq = _normalize(_freq_map(window))
+        momentum = _normalize(_momentum_map(window))
+        omission = _normalize(_omission_map(window))
+        scores = {
+            n: (
+                markov[n] * 0.42
+                + special_markov[n] * 0.16
+                + second_order[n] * 0.14
+                + phase[n] * 0.08
+                + attr[n] * 0.06
+                + momentum[n] * 0.06
+                + freq[n] * 0.04
+                + omission[n] * 0.04
+            )
+            for n in ALL_NUMBERS
+        }
+        main_picks = _pick_top_six(scores, "markov transition")
+        main_set = {n for n, _, _, _ in main_picks}
+        special_candidates = [
+            (n, s) for n, s in sorted(scores.items(), key=lambda x: x[1], reverse=True) if n not in main_set
+        ]
+        if not special_candidates:
+            special_candidates = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        special_number, special_score = special_candidates[0]
+        return main_picks, special_number, special_score, scores
     if strategy == "pattern_mined_v1":
         cfg = mined_config or _default_mined_config()
         return _apply_weight_config(draws, cfg, "规律挖掘")
@@ -1059,17 +1358,30 @@ def generate_strategy(
     )
 
 
-def generate_predictions(conn: sqlite3.Connection, issue_no: Optional[str] = None) -> str:
+def _resolve_strategy_ids(strategy_ids: Optional[Sequence[str]]) -> List[str]:
+    selected = list(strategy_ids) if strategy_ids is not None else list(STRATEGY_IDS)
+    valid = set(STRATEGY_IDS) | set(EXTRA_STRATEGY_IDS)
+    unknown = [strategy for strategy in selected if strategy not in valid]
+    if unknown:
+        raise ValueError(f"Unknown strategy id(s): {', '.join(unknown)}")
+    return selected
+
+
+def generate_predictions(
+    conn: sqlite3.Connection,
+    issue_no: Optional[str] = None,
+    strategy_ids: Optional[Sequence[str]] = None,
+) -> str:
     row = conn.execute("SELECT issue_no FROM draws ORDER BY draw_date DESC, issue_no DESC LIMIT 1").fetchone()
     if not row:
         raise RuntimeError("No draws found. Run sync/bootstrap first.")
     target_issue = issue_no or next_issue(row["issue_no"])
-    draws = load_recent_draws(conn, 200)
+    draws, specials = load_recent_draws_with_specials(conn, 200)
     if len(draws) < 20:
         raise RuntimeError("Need at least 20 draws to generate predictions.")
     mined_cfg = ensure_mined_pattern_config(conn, force=False)
 
-    for strategy in STRATEGY_IDS:
+    for strategy in _resolve_strategy_ids(strategy_ids):
         now = utc_now()
         existing = conn.execute(
             "SELECT id FROM prediction_runs WHERE issue_no = ? AND strategy = ?",
@@ -1100,7 +1412,12 @@ def generate_predictions(conn: sqlite3.Connection, issue_no: Optional[str] = Non
             )
             run_id = cur.lastrowid
 
-        picks, special_number, special_score, score_map = generate_strategy(draws, strategy, mined_config=mined_cfg)
+        picks, special_number, special_score, score_map = generate_strategy(
+            draws,
+            strategy,
+            mined_config=mined_cfg,
+            specials=specials,
+        )
         main_numbers = [n for n, _, _, _ in picks]
         conn.executemany(
             """
@@ -1175,6 +1492,7 @@ def run_historical_backtest(
             continue
 
         history_desc = [json.loads(draws[j]["numbers_json"]) for j in range(i - 1, -1, -1)]
+        history_specials_desc = [int(draws[j]["special_number"]) for j in range(i - 1, -1, -1)]
         winning_main = set(json.loads(target["numbers_json"]))
         winning_special = int(target["special_number"])
 
@@ -1190,6 +1508,7 @@ def run_historical_backtest(
                 history_desc,
                 strategy,
                 mined_config=mined_cfg,
+                specials=history_specials_desc,
             )
             picked_main = [n for n, _, _, _ in main_picks]
             pools = _build_candidate_pools(score_map, picked_main)
@@ -1454,7 +1773,7 @@ def get_picks_for_run(conn: sqlite3.Connection, run_id: int) -> Tuple[List[int],
 
 
 def backfill_missing_special_picks(conn: sqlite3.Connection) -> int:
-    draws = load_recent_draws(conn, 200)
+    draws, specials = load_recent_draws_with_specials(conn, 200)
     if len(draws) < 20:
         return 0
     mined_cfg = ensure_mined_pattern_config(conn, force=False)
@@ -1483,7 +1802,12 @@ def backfill_missing_special_picks(conn: sqlite3.Connection) -> int:
         main_set = {int(r["number"]) for r in mains}
         strategy_name = str(run["strategy"])
         cfg = mined_cfg if strategy_name == "pattern_mined_v1" else None
-        _, special_number, special_score, _ = generate_strategy(draws, strategy_name, mined_config=cfg)
+        _, special_number, special_score, _ = generate_strategy(
+            draws,
+            strategy_name,
+            mined_config=cfg,
+            specials=specials,
+        )
 
         if special_number in main_set:
             for n in ALL_NUMBERS:
@@ -1675,9 +1999,25 @@ def cmd_predict(args: argparse.Namespace) -> None:
     conn = connect_db(args.db)
     try:
         init_db(conn)
-        issue = generate_predictions(conn, issue_no=args.issue)
+        strategy_ids = [args.strategy] if getattr(args, "strategy", None) else None
+        issue = generate_predictions(conn, issue_no=args.issue, strategy_ids=strategy_ids)
         patched = backfill_missing_special_picks(conn)
         print(f"Predictions generated for {issue}")
+        if strategy_ids:
+            print(f"Strategy: {strategy_ids[0]} ({STRATEGY_LABELS.get(strategy_ids[0], strategy_ids[0])})")
+        if patched > 0:
+            print(f"Patched missing special picks: {patched}")
+    finally:
+        conn.close()
+
+
+def cmd_markov(args: argparse.Namespace) -> None:
+    conn = connect_db(args.db)
+    try:
+        init_db(conn)
+        issue = generate_predictions(conn, issue_no=args.issue, strategy_ids=["markov_v1"])
+        patched = backfill_missing_special_picks(conn)
+        print(f"Markov strategy generated for {issue}")
         if patched > 0:
             print(f"Patched missing special picks: {patched}")
     finally:
@@ -1812,7 +2152,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_predict = sub.add_parser("predict", help="Generate predictions for next or specified issue")
     p_predict.add_argument("--issue", help="Target New Macau issue, e.g. 2026147")
+    p_predict.add_argument(
+        "--strategy",
+        choices=STRATEGY_IDS + EXTRA_STRATEGY_IDS,
+        help="Generate only one strategy. Use markov_v1 for the separate Markov plan.",
+    )
     p_predict.set_defaults(func=cmd_predict)
+
+    p_markov = sub.add_parser("markov", help="Generate only the separate Markov strategy")
+    p_markov.add_argument("--issue", help="Target New Macau issue, e.g. 2026147")
+    p_markov.set_defaults(func=cmd_markov)
 
     p_review = sub.add_parser("review", help="Review pending runs for latest or specified issue")
     p_review.add_argument("--issue", help="Issue to review, e.g. 2026146")
