@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { describeSpecialNumber, formatNumber, getWaveColor, inferYearFromIssue, macauIssueWhere } from "@/lib/marksix";
-import { scheduledStrategies, strategyMeta } from "@/lib/strategies";
+import { strategyMeta } from "@/lib/strategies";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -24,7 +24,12 @@ function waveClassName(number: number): string {
   return "ball-green";
 }
 
-const scheduledStrategyIds = scheduledStrategies();
+const featuredStrategyIds = [
+  "zodiac_special_v1",
+  "hot_special_v1",
+  "cold_special_v1",
+  "knowledge_mix_v1",
+] as const;
 
 export default async function HomePage() {
   const latestDraw = await prisma.draw.findFirst({
@@ -50,7 +55,6 @@ export default async function HomePage() {
     : [];
 
   const latestIssueYear = latestDraw ? inferYearFromIssue(latestDraw.issueNo, latestDraw.drawDate.getUTCFullYear()) : null;
-  const markovRun = pendingRuns.find((run) => run.strategy === "markov_special_v1");
 
   return (
     <section className="stack">
@@ -59,14 +63,12 @@ export default async function HomePage() {
           <p className="eyebrow">Vercel Special Number Predictor</p>
           <h2>新澳门六合彩特别号码预测</h2>
           <div className="scheme-list">
-            {scheduledStrategyIds.map((strategy) => (
-              <article
-                key={strategy}
-                className={`scheme-card ${strategy === "markov_special_v1" ? "is-markov" : ""}`}
-              >
+            {featuredStrategyIds.map((strategy) => (
+              <p key={strategy} className="scheme-item">
                 <strong>{strategyMeta[strategy].name}</strong>
-                <p>{strategyMeta[strategy].description}</p>
-              </article>
+                <br />
+                {strategyMeta[strategy].description}
+              </p>
             ))}
           </div>
         </div>
@@ -82,18 +84,6 @@ export default async function HomePage() {
             {latestIssueYear ? (
               <p className="special-chip">特别号 {describeSpecialNumber(latestDraw.specialNumber, latestIssueYear)}</p>
             ) : null}
-            {latestPendingIssue ? (
-              <div className="strategy-status-grid">
-                <div>
-                  <span className="kv">预测期号</span>
-                  <strong>{latestPendingIssue.issueNo}</strong>
-                </div>
-                <div>
-                  <span className="kv">马尔科夫</span>
-                  <strong>{markovRun ? "已生成" : "待生成"}</strong>
-                </div>
-              </div>
-            ) : null}
           </div>
         ) : (
           <div className="hero-card">
@@ -108,7 +98,7 @@ export default async function HomePage() {
           <div>
             <h3 className="issue-title">下期预测：{latestPendingIssue.issueNo}</h3>
           </div>
-            <p className="kv section-copy">{scheduledStrategyIds.length} 套新澳门六合彩特别号码方案已接入定时生成，含单独马尔科夫转移方案。</p>
+            <p className="kv section-copy">下方展示当前已生成的特别号码方案，可直接用于复盘。</p>
         </div>
       ) : null}
 
@@ -152,7 +142,7 @@ export default async function HomePage() {
         {pendingRuns.map((run) => (
           <article
             key={run.id}
-            className={`card prediction-card ${run.strategy === "markov_special_v1" ? "is-markov" : ""}`}
+            className="card"
           >
             <div className="card-head">
               <h3>{strategyMeta[run.strategy as keyof typeof strategyMeta]?.name ?? run.strategy}</h3>

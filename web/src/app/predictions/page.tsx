@@ -67,16 +67,8 @@ export default async function PredictionsPage({
     issueNo: macauIssueWhere().issueNo,
     ...(strategyFilter !== "all" ? { strategy: strategyFilter } : {}),
   };
-  const allPredictionWhere = { issueNo: macauIssueWhere().issueNo };
 
   const totalPredictions = await prisma.predictionRun.count({ where: predictionWhere });
-  const strategyCounts = await prisma.predictionRun.groupBy({
-    by: ["strategy"],
-    where: allPredictionWhere,
-    _count: { _all: true },
-  });
-  const strategyCountMap = new Map(strategyCounts.map((item) => [item.strategy, item._count._all]));
-  const markovCount = strategyCountMap.get("markov_special_v1") ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalPredictions / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
   const predictionHistory = await prisma.predictionRun.findMany({
@@ -107,21 +99,6 @@ export default async function PredictionsPage({
           <h2>预测历史</h2>
         </div>
         <p className="kv">展示数据库中已经保存的特别号码预测批次，马尔科夫转移方案可单独筛选和追踪。</p>
-      </div>
-
-      <div className="summary-strip">
-        <div>
-          <span className="kv">全部记录</span>
-          <strong>{strategyCounts.reduce((sum, item) => sum + item._count._all, 0)}</strong>
-        </div>
-        <div>
-          <span className="kv">马尔科夫记录</span>
-          <strong>{markovCount}</strong>
-        </div>
-        <div>
-          <span className="kv">当前筛选</span>
-          <strong>{strategyFilter === "all" ? "全部策略" : strategyMeta[strategyFilter].name}</strong>
-        </div>
       </div>
 
       <div className="card">
@@ -166,7 +143,7 @@ export default async function PredictionsPage({
                 </thead>
                 <tbody>
                   {predictionHistory.map((run) => (
-                    <tr key={run.id} className={run.strategy === "markov_special_v1" ? "is-markov-row" : undefined}>
+                    <tr key={run.id}>
                       <td>{run.issueNo}</td>
                       <td>{strategyMeta[run.strategy as keyof typeof strategyMeta]?.name ?? run.strategy}</td>
                       <td>{run.status === "REVIEWED" ? "已复盘" : "待开奖"}</td>

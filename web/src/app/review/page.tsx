@@ -112,8 +112,7 @@ export default async function ReviewPage({
     _count: { _all: true },
   });
   const statsMap = new Map(stats.map((item) => [item.strategy, item]));
-  const markovStats = statsMap.get("markov_special_v1");
-  const reviewedTotal = stats.reduce((sum, item) => sum + item._count._all, 0);
+  const overviewStrategies = STRATEGY_OPTIONS.filter((option) => option.value !== "all");
 
   return (
     <section className="stack">
@@ -123,21 +122,6 @@ export default async function ReviewPage({
           <h2>特别号码复盘</h2>
         </div>
         <p className="kv">命中以“候选池是否包含当期特别号”为准，马尔科夫转移方案已纳入复盘筛选和策略总览。</p>
-      </div>
-
-      <div className="summary-strip">
-        <div>
-          <span className="kv">复盘总数</span>
-          <strong>{reviewedTotal}</strong>
-        </div>
-        <div>
-          <span className="kv">马尔科夫复盘</span>
-          <strong>{markovStats?._count._all ?? 0}</strong>
-        </div>
-        <div>
-          <span className="kv">马尔科夫均值</span>
-          <strong>{(markovStats?._avg.hitCount ?? 0).toFixed(2)}</strong>
-        </div>
       </div>
 
       <div className="card">
@@ -151,13 +135,17 @@ export default async function ReviewPage({
             </tr>
           </thead>
           <tbody>
-            {stats.map((item) => (
-              <tr key={item.strategy} className={item.strategy === "markov_special_v1" ? "is-markov-row" : undefined}>
-                <td>{strategyMeta[item.strategy as keyof typeof strategyMeta]?.name ?? item.strategy}</td>
-                <td>{item._count._all}</td>
-                <td>{(item._avg.hitCount ?? 0).toFixed(2)}</td>
-              </tr>
-            ))}
+            {overviewStrategies.map((option) => {
+              const item = statsMap.get(option.value);
+
+              return (
+                <tr key={option.value}>
+                  <td>{option.label}</td>
+                  <td>{item?._count._all ?? 0}</td>
+                  <td>{(item?._avg.hitCount ?? 0).toFixed(2)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -223,7 +211,7 @@ export default async function ReviewPage({
                     const year = inferYearFromIssue(review.draw.issueNo, review.draw.drawDate.getUTCFullYear());
 
                     return (
-                      <tr key={review.id} className={review.run.strategy === "markov_special_v1" ? "is-markov-row" : undefined}>
+                      <tr key={review.id}>
                         <td>{review.draw.issueNo}</td>
                         <td>{describeSpecialNumber(review.draw.specialNumber, year)}</td>
                         <td>{strategyMeta[review.run.strategy as keyof typeof strategyMeta]?.name ?? review.run.strategy}</td>
