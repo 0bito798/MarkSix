@@ -160,24 +160,6 @@ img {
   line-height: 1.65;
 }
 
-.scheme-list,
-.strategy-status-grid {
-  display: grid;
-  gap: 10px;
-  margin-top: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-}
-
-.scheme-item {
-  margin: 0;
-  color: #374151;
-  line-height: 1.75;
-}
-
-.scheme-item strong {
-  color: var(--fg);
-}
-
 .issue-title {
   margin: 4px 0 6px;
   font-size: 28px;
@@ -249,6 +231,17 @@ img {
 .metric-card strong {
   display: block;
   margin-bottom: 6px;
+}
+
+.scheme-card {
+  min-height: 118px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(255, 248, 233, 0.7) 100%);
+}
+
+.scheme-card p {
+  margin: 0;
+  line-height: 1.65;
 }
 
 .card {
@@ -717,11 +710,6 @@ tbody tr:hover td {
   .metric-grid {
     grid-template-columns: 1fr;
     gap: 8px;
-  }
-
-  .scheme-list,
-  .strategy-status-grid {
-    grid-template-columns: 1fr;
   }
 
   .history-balls {

@@ -691,11 +691,11 @@ export function generateStrategyResult(strategy: StrategyId, recentDraws: Draw[]
       strategyVersion: strategy,
       picks: pickTopCandidates(markovScores, strategyMeta[strategy].limit, (number, score) =>
         buildReason([
-          ["Markov", profile.transitionScores.get(number) ?? 0],
-          ["special transition", profile.specialTransitionScores.get(number) ?? 0],
-          ["second order", profile.secondOrderScores.get(number) ?? 0],
-          ["phase", profile.phaseTransitionScores.get(number) ?? 0],
-          ["score", score],
+          ["开奖转移", profile.transitionScores.get(number) ?? 0],
+          ["特别号转移", profile.specialTransitionScores.get(number) ?? 0],
+          ["二阶转移", profile.secondOrderScores.get(number) ?? 0],
+          ["阶段节奏", profile.phaseTransitionScores.get(number) ?? 0],
+          ["综合分", score],
         ]),
       ),
     };

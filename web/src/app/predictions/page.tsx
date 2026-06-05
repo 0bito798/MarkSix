@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { formatNumber, getWaveColor, macauIssueWhere } from "@/lib/marksix";
+import { formatPredictionReason } from "@/lib/prediction-reason";
 import { scheduledStrategies, strategyMeta } from "@/lib/strategies";
 import { type StrategyId } from "@/lib/types";
 
@@ -151,7 +152,7 @@ export default async function PredictionsPage({
                       <td>
                         <div className="history-balls">
                           {run.picks.map((pick) => (
-                            <span key={pick.id} className={`history-ball ${waveClassName(pick.number)}`} title={pick.reason}>
+                            <span key={pick.id} className={`history-ball ${waveClassName(pick.number)}`} title={formatPredictionReason(pick.reason)}>
                               {formatNumber(pick.number)}
                             </span>
                           ))}

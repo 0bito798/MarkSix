@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { describeSpecialNumber, formatNumber, getWaveColor, inferYearFromIssue, macauIssueWhere } from "@/lib/marksix";
+import { formatPredictionReason } from "@/lib/prediction-reason";
 import { strategyMeta } from "@/lib/strategies";
 
 export const dynamic = "force-dynamic";
@@ -63,15 +64,7 @@ export default async function HomePage() {
         <div className="hero-copy">
           <p className="eyebrow">Vercel Special Number Predictor</p>
           <h2>新澳门六合彩特别号码预测</h2>
-          <div className="strategy-status-grid">
-            {featuredStrategyIds.map((strategy) => (
-              <p key={strategy} className="scheme-item">
-                <strong>{strategyMeta[strategy].name}</strong>
-                <br />
-                {strategyMeta[strategy].description}
-              </p>
-            ))}
-          </div>
+          <p className="lede">聚合近期热度、遗漏、生肖节奏、结构分布和转移关系，生成下期特别号候选池。</p>
         </div>
 
         {latestDraw ? (
@@ -102,6 +95,24 @@ export default async function HomePage() {
             <p className="kv section-copy">下方展示当前已生成的特别号码方案，可直接用于复盘。</p>
         </div>
       ) : null}
+
+      <div className="card">
+        <div className="card-head">
+          <div>
+            <h3>方案介绍</h3>
+            <p className="kv">不同方案从不同角度筛选候选号码，便于横向比较和后续复盘。</p>
+          </div>
+          <span className="badge">策略总览</span>
+        </div>
+        <div className="metric-grid">
+          {featuredStrategyIds.map((strategy) => (
+            <article key={strategy} className="metric-card scheme-card">
+              <strong>{strategyMeta[strategy].name}</strong>
+              <p className="kv">{strategyMeta[strategy].description}</p>
+            </article>
+          ))}
+        </div>
+      </div>
 
       <div className="card">
         <div className="card-head">
@@ -153,7 +164,7 @@ export default async function HomePage() {
             <p className="kv">目标期号: {run.issueNo}</p>
             <div className="numbers">
               {run.picks.map((pick) => (
-                <span key={pick.id} className={`ball ${waveClassName(pick.number)}`} title={pick.reason}>
+                <span key={pick.id} className={`ball ${waveClassName(pick.number)}`} title={formatPredictionReason(pick.reason)}>
                   {String(pick.number).padStart(2, "0")}
                 </span>
               ))}
@@ -165,7 +176,7 @@ export default async function HomePage() {
                   <span className={`reason-ball ${waveClassName(pick.number)}`}>
                     {String(pick.number).padStart(2, "0")}
                   </span>
-                  <p className="kv reason-copy">{pick.reason}</p>
+                  <p className="kv reason-copy">{formatPredictionReason(pick.reason)}</p>
                 </div>
               ))}
             </div>

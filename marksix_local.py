@@ -1072,7 +1072,7 @@ def _pick_top_six(scores: Dict[int, float], reason: str) -> List[Tuple[int, int,
             if replaced:
                 break
 
-    return [(n, idx + 1, s, f"{reason} score={s:.4f}") for idx, (n, s) in enumerate(picked)]
+    return [(n, idx + 1, s, f"{reason} 综合分={s:.4f}") for idx, (n, s) in enumerate(picked)]
 
 
 def _default_mined_config() -> Dict[str, float]:
@@ -1339,7 +1339,7 @@ def generate_strategy(
             )
             for n in ALL_NUMBERS
         }
-        main_picks = _pick_top_six(scores, "markov transition")
+        main_picks = _pick_top_six(scores, "马尔科夫转移")
         main_set = {n for n, _, _, _ in main_picks}
         special_candidates = [
             (n, s) for n, s in sorted(scores.items(), key=lambda x: x[1], reverse=True) if n not in main_set
@@ -2017,7 +2017,7 @@ def cmd_markov(args: argparse.Namespace) -> None:
         init_db(conn)
         issue = generate_predictions(conn, issue_no=args.issue, strategy_ids=["markov_v1"])
         patched = backfill_missing_special_picks(conn)
-        print(f"Markov strategy generated for {issue}")
+        print(f"已为 {issue} 生成马尔科夫转移方案")
         if patched > 0:
             print(f"Patched missing special picks: {patched}")
     finally:
@@ -2155,11 +2155,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_predict.add_argument(
         "--strategy",
         choices=STRATEGY_IDS + EXTRA_STRATEGY_IDS,
-        help="Generate only one strategy. Use markov_v1 for the separate Markov plan.",
+        help="只生成一个策略；markov_v1 表示单独生成马尔科夫转移方案。",
     )
     p_predict.set_defaults(func=cmd_predict)
 
-    p_markov = sub.add_parser("markov", help="Generate only the separate Markov strategy")
+    p_markov = sub.add_parser("markov", help="只生成单独的马尔科夫转移方案")
     p_markov.add_argument("--issue", help="Target New Macau issue, e.g. 2026147")
     p_markov.set_defaults(func=cmd_markov)
 

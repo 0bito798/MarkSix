@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { formatPredictionReason } from "@/lib/prediction-reason";
 import { allStrategies, buildMarkovTransitionScores, generateStrategyResult, scheduledStrategies } from "@/lib/strategies";
 
 function makeDraw(numbers: number[], specialNumber: number, day: number) {
@@ -58,10 +59,18 @@ test("markov_special_v1 stays separate from the default strategy list", () => {
   assert.equal(result.strategy, "markov_special_v1");
   assert.equal(result.picks.length, 18);
   assert.equal(result.picks[0].number, 42);
+  assert.match(result.picks[0].reason, /开奖转移|特别号转移|二阶转移|阶段节奏|综合分/);
+  assert.doesNotMatch(result.picks[0].reason, /Markov|special transition|second order|\bphase\b|\bscore\b/);
   assert.ok(result.picks.every((pick) => pick.number >= 1 && pick.number <= 49));
 });
 
 test("scheduled generation includes Markov without changing defaults", () => {
   assert.ok(!allStrategies().includes("markov_special_v1"));
   assert.ok(scheduledStrategies().includes("markov_special_v1"));
+});
+
+test("legacy Markov reason labels are displayed in Chinese", () => {
+  const formatted = formatPredictionReason("Markov 0.90 · special transition 0.80 · second order 0.70 · phase 0.60 · score=0.50");
+
+  assert.equal(formatted, "开奖转移 0.90 · 特别号转移 0.80 · 二阶转移 0.70 · 阶段节奏 0.60 · 综合分=0.50");
 });
