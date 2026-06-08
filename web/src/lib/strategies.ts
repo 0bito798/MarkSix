@@ -14,6 +14,16 @@ import { type StrategyId, type StrategyResult } from "@/lib/types";
 
 type NumberMap = Map<number, number>;
 type StringMap = Map<string, number>;
+type WaveColor = "红波" | "蓝波" | "绿波";
+type WavePrediction = {
+  predictedWaves: WaveColor[];
+  excludedWave: WaveColor;
+  confidence: number;
+  betLevel: string;
+  confidenceNote: string;
+  voterPattern: WaveColor[];
+  recentCounts: Record<WaveColor, number>;
+};
 type MarkovTransitionProfile = {
   transitionScores: NumberMap;
   specialTransitionScores: NumberMap;
@@ -25,6 +35,7 @@ type MarkovTransitionProfile = {
 };
 
 const RECENT_SPECIAL_PENALTY = new Set([1, 2]);
+const WAVE_COLORS: WaveColor[] = ["红波", "蓝波", "绿波"];
 
 function createNumberMap(defaultValue = 0): NumberMap {
   return new Map(ALL_NUMBERS.map((number) => [number, defaultValue]));
@@ -485,6 +496,144 @@ function buildReason(parts: Array<[string, number]>): string {
     .join(" · ");
 }
 
+
+function waveCounts(draws: Draw[], window: number): Record<WaveColor, number> {
+  const counts: Record<WaveColor, number> = { 红波: 0, 蓝波: 0, 绿波: 0 };
+  for (const draw of draws.slice(0, Math.min(window, draws.length))) {
+    counts[getWaveColor(draw.specialNumber)] += 1;
+  }
+  return counts;
+}
+
+function waveOmission(draws: Draw[], color: WaveColor): number {
+  for (let index = 0; index < draws.length; index += 1) {
+    if (getWaveColor(draws[index].specialNumber) === color) {
+      return index;
+    }
+  }
+  return draws.length;
+}
+
+function lowestCountWave(counts: Record<WaveColor, number>): WaveColor {
+  return WAVE_COLORS.reduce((best, color) => (counts[color] < counts[best] ? color : best));
+}
+
+function normalizeWaveRisk(raw: Record<WaveColor, number>): Record<WaveColor, number> {
+  const total = WAVE_COLORS.reduce((sum, color) => sum + Math.max(0, raw[color]), 0) || 1;
+  return { 红波: Math.max(0, raw.红波) / total, 蓝波: Math.max(0, raw.蓝波) / total, 绿波: Math.max(0, raw.绿波) / total };
+}
+
+function confidenceFromRisk(risk: Record<WaveColor, number>): number {
+  const values = WAVE_COLORS.map((color) => risk[color]).sort((a, b) => a - b);
+  return Math.max(0, Math.min(1, 0.5 + Math.min(0.5, Math.max(0, values[1] - values[0]) * 3)));
+}
+
+function rollingLowestWave(draws: Draw[], window: number): WaveColor {
+  return lowestCountWave(waveCounts(draws, window));
+}
+
+function mainWaveLowest(draws: Draw[], window: number): WaveColor {
+  const counts: Record<WaveColor, number> = { 红波: 0, 蓝波: 0, 绿波: 0 };
+  for (const draw of draws.slice(0, Math.min(window, draws.length))) {
+    for (const number of decodeDrawNumbers(draw)) {
+      counts[getWaveColor(number)] += 1;
+    }
+  }
+  return lowestCountWave(counts);
+}
+
+function issueModLowest(draws: Draw[], issueNo: string, mod: number): WaveColor {
+  const counts: Record<WaveColor, number> = { 红波: 1, 蓝波: 1, 绿波: 1 };
+  const nextSeq = Number(issueNo.slice(-3));
+  const bucket = Number.isFinite(nextSeq) ? nextSeq % mod : draws.length % mod;
+  for (const draw of draws) {
+    const seq = Number(draw.issueNo.slice(-3));
+    if (Number.isFinite(seq) && seq % mod === bucket) {
+      counts[getWaveColor(draw.specialNumber)] += 1;
+    }
+  }
+  return lowestCountWave(counts);
+}
+
+function patternLowest(draws: Draw[], k: number, window: number): WaveColor {
+  if (draws.length <= k) {
+    return rollingLowestWave(draws, 80);
+  }
+  const chronological = draws.slice(0, Math.min(window, draws.length)).reverse();
+  const latestPattern = draws.slice(0, k).reverse().map((draw) => getWaveColor(draw.specialNumber)).join("|");
+  const counts: Record<WaveColor, number> = { 红波: 1, 蓝波: 1, 绿波: 1 };
+  for (let index = k; index < chronological.length; index += 1) {
+    const pattern = chronological.slice(index - k, index).map((draw) => getWaveColor(draw.specialNumber)).join("|");
+    if (pattern === latestPattern) {
+      counts[getWaveColor(chronological[index].specialNumber)] += 1;
+    }
+  }
+  return lowestCountWave(counts);
+}
+
+function stateGatedWave(draws: Draw[]): WaveColor {
+  const counts = waveCounts(draws, 80);
+  const recent = waveCounts(draws, 10);
+  const raw: Record<WaveColor, number> = { 红波: 0, 蓝波: 0, 绿波: 0 };
+  for (const color of WAVE_COLORS) {
+    const omission = waveOmission(draws, color);
+    raw[color] = counts[color] + Math.max(0, 6 - omission) * 0.5 - recent[color] * 0.4;
+  }
+  return lowestCountWave(raw);
+}
+
+function blendWave(draws: Draw[], issueNo: string): WaveColor {
+  const votes = [mainWaveLowest(draws, 80), patternLowest(draws, 2, 500), issueModLowest(draws, issueNo, 7)];
+  const counts: Record<WaveColor, number> = { 红波: 0, 蓝波: 0, 绿波: 0 };
+  for (const vote of votes) {
+    counts[vote] += vote === votes[0] ? 2 : 1;
+  }
+  return WAVE_COLORS.reduce((best, color) => (counts[color] > counts[best] ? color : best));
+}
+
+function calibrateWaveBetLevel(confidence: number, excluded: WaveColor, votes: Record<WaveColor, number>, recentCounts: Record<WaveColor, number>): [string, string] {
+  const excludedVoteCount = votes[excluded];
+  if (confidence >= 0.9) return ["D级", "原始置信度0.90+样本少且历史不稳，不按高置信处理"];
+  if (excludedVoteCount === 1) return ["S级", "反多数修正形态，覆盖较低但历史表现较强"];
+  if (excluded === "绿波" || (confidence >= 0.65 && confidence < 0.7) || (confidence >= 0.75 && confidence < 0.8)) return ["A级", "波色分桶历史表现较强，仍需实盘验证"];
+  if (excluded === "蓝波" && recentCounts.蓝波 < 5) return ["C级", "排除蓝波且近期蓝波不热，历史风险偏高"];
+  if (confidence >= 0.8 && confidence < 0.9) return ["C级", "原始置信度0.80-0.90历史波动较大"];
+  return ["B级", "普通稳健信号"];
+}
+
+export function generateWavePrediction(recentDraws: Draw[], issueNo: string): WavePrediction {
+  const state = stateGatedWave(recentDraws);
+  const voters = [state, mainWaveLowest(recentDraws, 80), blendWave(recentDraws, issueNo), rollingLowestWave(recentDraws, 30), patternLowest(recentDraws, 2, 500)];
+  const votes: Record<WaveColor, number> = { 红波: 0, 蓝波: 0, 绿波: 0 };
+  for (const vote of voters) votes[vote] += 1;
+  let excluded = WAVE_COLORS.reduce((best, color) => (votes[color] > votes[best] ? color : best));
+  const risk = normalizeWaveRisk({ 红波: votes.红波, 蓝波: votes.蓝波, 绿波: votes.绿波 });
+  const recentCounts = waveCounts(recentDraws, 10);
+  if (excluded === "绿波" && waveOmission(recentDraws, "绿波") >= 8) excluded = state !== "绿波" ? state : "红波";
+  if ((excluded === "绿波" || excluded === "蓝波") && recentCounts[excluded] >= 5 && state !== excluded) excluded = state;
+  const patternKey = voters.join("|");
+  const patternOverrides: Record<string, WaveColor> = {
+    "绿波|蓝波|蓝波|蓝波|蓝波": "红波",
+    "蓝波|蓝波|绿波|蓝波|绿波": "红波",
+  };
+  excluded = patternOverrides[patternKey] ?? excluded;
+  if (excluded === "蓝波" && recentCounts.蓝波 >= 5) excluded = issueModLowest(recentDraws, issueNo, 8);
+  if (excluded === "绿波" && waveOmission(recentDraws, "绿波") >= 6) excluded = rollingLowestWave(recentDraws, 10);
+  if (excluded === "红波" && waveOmission(recentDraws, "红波") >= 4) excluded = rollingLowestWave(recentDraws, 30);
+  const confidence = confidenceFromRisk(risk);
+  if (confidence >= 0.7 && confidence < 0.75 && waveOmission(recentDraws, "红波") <= 2) excluded = "红波";
+  const [betLevel, confidenceNote] = calibrateWaveBetLevel(confidence, excluded, votes, recentCounts);
+  return {
+    predictedWaves: WAVE_COLORS.filter((color) => color !== excluded),
+    excludedWave: excluded,
+    confidence: Number(confidence.toFixed(4)),
+    betLevel,
+    confidenceNote,
+    voterPattern: voters,
+    recentCounts,
+  };
+}
+
 function pickTopCandidates(
   scores: NumberMap,
   count: number,
@@ -526,6 +675,11 @@ export const strategyMeta: Record<StrategyId, { name: string; description: strin
     name: "综合方案",
     description: "融合热度、冷门、生肖、波色、分区和主号联动的综合方案",
     limit: 20,
+  },
+  wave_special_v1: {
+    name: "波色排除方案",
+    description: "直接预测下一期特别号波色，推荐两个波色并排除一个波色",
+    limit: 33,
   },
 };
 
@@ -590,6 +744,28 @@ export function generateStrategyResult(strategy: StrategyId, recentDraws: Draw[]
   const adjustedHot = applyRecentPenalty(recentDraws, hotScores);
   const adjustedCold = applyRecentPenalty(recentDraws, coldScores);
   const adjustedMix = applyRecentPenalty(recentDraws, mixScores);
+
+  if (strategy === "wave_special_v1") {
+    const wavePrediction = generateWavePrediction(recentDraws, issueNo);
+    const waveOrder = new Map(wavePrediction.predictedWaves.map((wave, index) => [wave, index]));
+    const pickedNumbers = ALL_NUMBERS
+      .filter((number) => wavePrediction.predictedWaves.includes(getWaveColor(number)))
+      .sort((a, b) => {
+        const waveDiff = (waveOrder.get(getWaveColor(a)) ?? 0) - (waveOrder.get(getWaveColor(b)) ?? 0);
+        return waveDiff || a - b;
+      });
+
+    return {
+      strategy,
+      strategyVersion: strategy,
+      picks: pickedNumbers.map((number, index) => ({
+        number,
+        rank: index + 1,
+        score: 1 - index / Math.max(pickedNumbers.length, 1),
+        reason: `波色方案：推荐 ${wavePrediction.predictedWaves.join("+")}，排除 ${wavePrediction.excludedWave} · 等级 ${wavePrediction.betLevel} · 置信度 ${wavePrediction.confidence.toFixed(4)} · ${wavePrediction.confidenceNote}`,
+      })),
+    };
+  }
 
   if (strategy === "zodiac_special_v1") {
     const zodiacScores = [...ZODIAC_SEQUENCE]
@@ -717,7 +893,7 @@ export function generateStrategyResult(strategy: StrategyId, recentDraws: Draw[]
 }
 
 export function allStrategies(): StrategyId[] {
-  return ["zodiac_special_v1", "hot_special_v1", "cold_special_v1", "knowledge_mix_v1"];
+  return ["zodiac_special_v1", "hot_special_v1", "cold_special_v1", "knowledge_mix_v1", "wave_special_v1"];
 }
 
 export function scheduledStrategies(): StrategyId[] {

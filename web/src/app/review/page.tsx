@@ -14,6 +14,7 @@ const STRATEGY_OPTIONS: Array<{ value: "all" | StrategyId; label: string }> = [
   { value: "cold_special_v1", label: strategyMeta.cold_special_v1.name },
   { value: "markov_special_v1", label: strategyMeta.markov_special_v1.name },
   { value: "knowledge_mix_v1", label: strategyMeta.knowledge_mix_v1.name },
+  { value: "wave_special_v1", label: strategyMeta.wave_special_v1.name },
 ];
 const HIT_OPTIONS: Array<{ value: HitFilter; label: string }> = [
   { value: "all", label: "全部" },
@@ -46,6 +47,14 @@ function parseStrategy(value?: string): StrategyFilter {
 
 function parseHit(value?: string): HitFilter {
   return value === "hit" || value === "miss" ? value : "all";
+}
+
+function waveSummary(detail?: { predictedWavesJson: string; excludedWave: string; betLevel: string; confidence: number } | null): string | null {
+  if (!detail) {
+    return null;
+  }
+  const predictedWaves = JSON.parse(detail.predictedWavesJson) as string[];
+  return `波色方案：推荐 ${predictedWaves.join("+")}，排除 ${detail.excludedWave} · 等级 ${detail.betLevel} · 置信度 ${detail.confidence.toFixed(4)}`;
 }
 
 function buildReviewHref(page: number, strategy: StrategyFilter, hit: HitFilter): string {
@@ -89,7 +98,7 @@ export default async function ReviewPage({
   const reviews = await prisma.predictionReview.findMany({
     where: reviewWhere,
     include: {
-      run: true,
+      run: { include: { waveDetail: true } },
       draw: true,
     },
     orderBy: { createdAt: "desc" },
@@ -214,7 +223,10 @@ export default async function ReviewPage({
                       <tr key={review.id}>
                         <td>{review.draw.issueNo}</td>
                         <td>{describeSpecialNumber(review.draw.specialNumber, year)}</td>
-                        <td>{strategyMeta[review.run.strategy as keyof typeof strategyMeta]?.name ?? review.run.strategy}</td>
+                        <td>
+                          {strategyMeta[review.run.strategy as keyof typeof strategyMeta]?.name ?? review.run.strategy}
+                          {waveSummary(review.run.waveDetail) ? <p className="kv compact-line">{waveSummary(review.run.waveDetail)}</p> : null}
+                        </td>
                         <td>{review.hitCount > 0 ? "命中" : "未中"}</td>
                         <td>{matched.length > 0 ? matched.map((number) => String(number).padStart(2, "0")).join(", ") : "-"}</td>
                       </tr>

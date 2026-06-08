@@ -28,6 +28,14 @@ function formatDateTime(date: Date): string {
   return date.toISOString().replace("T", " ").slice(0, 16);
 }
 
+function waveSummary(detail?: { predictedWavesJson: string; excludedWave: string; betLevel: string; confidence: number } | null): string | null {
+  if (!detail) {
+    return null;
+  }
+  const predictedWaves = JSON.parse(detail.predictedWavesJson) as string[];
+  return `波色方案：推荐 ${predictedWaves.join("+")}，排除 ${detail.excludedWave} · 等级 ${detail.betLevel} · 置信度 ${detail.confidence.toFixed(4)}`;
+}
+
 function parsePage(value?: string): number {
   const page = Number(value);
   if (!Number.isInteger(page) || page < 1) {
@@ -78,6 +86,7 @@ export default async function PredictionsPage({
       picks: {
         orderBy: { number: "asc" },
       },
+      waveDetail: true,
     },
     orderBy: { createdAt: "desc" },
     skip: (safePage - 1) * PAGE_SIZE,
@@ -150,6 +159,7 @@ export default async function PredictionsPage({
                       <td>{run.status === "REVIEWED" ? "已复盘" : "待开奖"}</td>
                       <td>{formatDateTime(run.createdAt)}</td>
                       <td>
+                        {waveSummary(run.waveDetail) ? <p className="kv compact-line">{waveSummary(run.waveDetail)}</p> : null}
                         <div className="history-balls">
                           {run.picks.map((pick) => (
                             <span key={pick.id} className={`history-ball ${waveClassName(pick.number)}`} title={formatPredictionReason(pick.reason)}>

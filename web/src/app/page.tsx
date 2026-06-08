@@ -25,11 +25,20 @@ function waveClassName(number: number): string {
   return "ball-green";
 }
 
+function waveSummary(detail?: { predictedWavesJson: string; excludedWave: string; betLevel: string; confidence: number } | null): string | null {
+  if (!detail) {
+    return null;
+  }
+  const predictedWaves = JSON.parse(detail.predictedWavesJson) as string[];
+  return `波色方案：推荐 ${predictedWaves.join("+")}，排除 ${detail.excludedWave} · 等级 ${detail.betLevel} · 置信度 ${detail.confidence.toFixed(4)}`;
+}
+
 const featuredStrategyIds = [
   "zodiac_special_v1",
   "hot_special_v1",
   "cold_special_v1",
   "knowledge_mix_v1",
+  "wave_special_v1",
   "markov_special_v1",
 ] as const;
 
@@ -51,7 +60,7 @@ export default async function HomePage() {
         status: "PENDING",
         issueNo: latestPendingIssue.issueNo,
       },
-      include: { picks: { orderBy: { rank: "asc" } } },
+      include: { picks: { orderBy: { rank: "asc" } }, waveDetail: true },
       orderBy: { createdAt: "asc" },
     })
     : [];
@@ -162,6 +171,7 @@ export default async function HomePage() {
             </div>
             <p className="kv">{strategyMeta[run.strategy as keyof typeof strategyMeta]?.description}</p>
             <p className="kv">目标期号: {run.issueNo}</p>
+            {waveSummary(run.waveDetail) ? <p className="special-chip">{waveSummary(run.waveDetail)}</p> : null}
             <div className="numbers">
               {run.picks.map((pick) => (
                 <span key={pick.id} className={`ball ${waveClassName(pick.number)}`} title={formatPredictionReason(pick.reason)}>

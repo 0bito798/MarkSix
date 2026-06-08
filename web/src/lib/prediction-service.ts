@@ -1,7 +1,7 @@
 import { PredictionStatus } from "@prisma/client";
-import { macauIssueWhere, nextMacauIssueNo } from "@/lib/marksix";
+import { getWaveColor, macauIssueWhere, nextMacauIssueNo } from "@/lib/marksix";
 import { prisma } from "@/lib/prisma";
-import { allStrategies, generateStrategyResult } from "@/lib/strategies";
+import { allStrategies, generateStrategyResult, generateWavePrediction } from "@/lib/strategies";
 import { type StrategyId } from "@/lib/types";
 
 function nextIssueNo(issueNo: string): string {
@@ -21,7 +21,7 @@ export async function generatePredictionsForIssue(issueNo: string, strategyIds?:
   const draws = await prisma.draw.findMany({
     where: macauIssueWhere(),
     orderBy: { drawDate: "desc" },
-    take: 200,
+    take: 900,
   });
 
   if (draws.length < 20) {
@@ -68,6 +68,39 @@ export async function generatePredictionsForIssue(issueNo: string, strategyIds?:
       })),
     });
 
+    if (strategy === "wave_special_v1") {
+      const wavePrediction = generateWavePrediction(draws, issueNo);
+      await prisma.wavePredictionDetail.upsert({
+        where: { runId: run.id },
+        update: {
+          issueNo,
+          predictedWavesJson: JSON.stringify(wavePrediction.predictedWaves),
+          excludedWave: wavePrediction.excludedWave,
+          confidence: wavePrediction.confidence,
+          betLevel: wavePrediction.betLevel,
+          confidenceNote: wavePrediction.confidenceNote,
+          voterPatternJson: JSON.stringify(wavePrediction.voterPattern),
+          recentCountsJson: JSON.stringify(wavePrediction.recentCounts),
+          actualWave: null,
+          hit: null,
+          reviewedAt: null,
+        },
+        create: {
+          runId: run.id,
+          issueNo,
+          predictedWavesJson: JSON.stringify(wavePrediction.predictedWaves),
+          excludedWave: wavePrediction.excludedWave,
+          confidence: wavePrediction.confidence,
+          betLevel: wavePrediction.betLevel,
+          confidenceNote: wavePrediction.confidenceNote,
+          voterPatternJson: JSON.stringify(wavePrediction.voterPattern),
+          recentCountsJson: JSON.stringify(wavePrediction.recentCounts),
+        },
+      });
+    } else {
+      await prisma.wavePredictionDetail.deleteMany({ where: { runId: run.id } });
+    }
+
     createdRuns.push(run.id);
   }
 
@@ -97,6 +130,7 @@ export async function reviewIssue(issueNo: string) {
   }
 
   const winningSpecial = draw.specialNumber;
+  const actualWave = getWaveColor(winningSpecial);
   const pendingRuns = await prisma.predictionRun.findMany({
     where: { issueNo, status: PredictionStatus.PENDING },
     include: { picks: true },
@@ -136,6 +170,17 @@ export async function reviewIssue(issueNo: string) {
         hitRate,
       },
     });
+
+    if (run.strategy === "wave_special_v1") {
+      await prisma.wavePredictionDetail.updateMany({
+        where: { runId: run.id },
+        data: {
+          actualWave,
+          hit: hitCount > 0,
+          reviewedAt: new Date(),
+        },
+      });
+    }
   }
 
   return { reviewed: pendingRuns.length };

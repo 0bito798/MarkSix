@@ -38,10 +38,34 @@ model PredictionRun {
   reviewedAt      DateTime?
   picks           PredictionPick[]
   review          PredictionReview?
+  waveDetail      WavePredictionDetail?
 
   @@index([issueNo])
   @@index([strategy])
   @@unique([issueNo, strategy, strategyVersion])
+}
+
+model WavePredictionDetail {
+  id                 Int            @id @default(autoincrement())
+  runId              Int            @unique
+  issueNo            String
+  predictedWavesJson String
+  excludedWave       String
+  confidence         Float
+  betLevel           String
+  confidenceNote     String
+  voterPatternJson   String
+  recentCountsJson   String
+  actualWave         String?
+  hit                Boolean?
+  createdAt          DateTime       @default(now())
+  reviewedAt         DateTime?
+  run                PredictionRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([issueNo])
+  @@index([excludedWave])
+  @@index([betLevel])
+  @@index([hit])
 }
 
 model PredictionPick {
