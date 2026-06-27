@@ -1,5 +1,6 @@
 import { PredictionStatus } from "@prisma/client";
 import { getWaveColor, macauIssueWhere, nextMacauIssueNo } from "@/lib/marksix";
+import { reviewPredictionRun } from "@/lib/prediction-review";
 import { prisma } from "@/lib/prisma";
 import { allStrategies, generateStrategyResult, predictWaveColor } from "@/lib/strategies";
 import { type StrategyId } from "@/lib/types";
@@ -21,7 +22,6 @@ export async function generatePredictionsForIssue(issueNo: string, strategyIds?:
   const draws = await prisma.draw.findMany({
     where: macauIssueWhere(),
     orderBy: { drawDate: "desc" },
-    take: 900,
   });
 
   if (draws.length < 20) {
@@ -58,15 +58,17 @@ export async function generatePredictionsForIssue(issueNo: string, strategyIds?:
     });
 
     await prisma.predictionPick.deleteMany({ where: { runId: run.id } });
-    await prisma.predictionPick.createMany({
-      data: result.picks.map((pick) => ({
-        runId: run.id,
-        number: pick.number,
-        rank: pick.rank,
-        score: pick.score,
-        reason: pick.reason,
-      })),
-    });
+    if (result.picks.length > 0) {
+      await prisma.predictionPick.createMany({
+        data: result.picks.map((pick) => ({
+          runId: run.id,
+          number: pick.number,
+          rank: pick.rank,
+          score: pick.score,
+          reason: pick.reason,
+        })),
+      });
+    }
 
     if (strategy === "wave_special_v1") {
       const wavePrediction = predictWaveColor(draws, issueNo);
@@ -122,24 +124,24 @@ export async function reviewIssue(issueNo: string) {
   const actualWave = getWaveColor(winningSpecial);
   const pendingRuns = await prisma.predictionRun.findMany({
     where: { issueNo, status: PredictionStatus.PENDING },
-    include: { picks: true },
+    include: { picks: true, waveDetail: true },
   });
 
   for (const run of pendingRuns) {
-    const matched = run.picks
-      .map((p) => p.number)
-      .filter((n) => n === winningSpecial)
-      .sort((a, b) => a - b);
-
-    const hitCount = matched.length;
-    const hitRate = run.picks.length === 0 ? 0 : Number((hitCount / run.picks.length).toFixed(4));
+    const outcome = reviewPredictionRun({
+      strategy: run.strategy,
+      picks: run.picks.map((pick) => pick.number),
+      winningSpecial,
+      actualWave,
+      waveDetail: run.waveDetail,
+    });
 
     await prisma.predictionRun.update({
       where: { id: run.id },
       data: {
         status: PredictionStatus.REVIEWED,
-        hitCount,
-        hitRate,
+        hitCount: outcome.hitCount,
+        hitRate: outcome.hitRate,
         reviewedAt: new Date(),
       },
     });
@@ -147,16 +149,16 @@ export async function reviewIssue(issueNo: string) {
     await prisma.predictionReview.upsert({
       where: { runId: run.id },
       update: {
-        matchedNumbersJson: JSON.stringify(matched),
-        hitCount,
-        hitRate,
+        matchedNumbersJson: JSON.stringify(outcome.matchedNumbers),
+        hitCount: outcome.hitCount,
+        hitRate: outcome.hitRate,
       },
       create: {
         runId: run.id,
         drawId: draw.id,
-        matchedNumbersJson: JSON.stringify(matched),
-        hitCount,
-        hitRate,
+        matchedNumbersJson: JSON.stringify(outcome.matchedNumbers),
+        hitCount: outcome.hitCount,
+        hitRate: outcome.hitRate,
       },
     });
 
@@ -165,7 +167,7 @@ export async function reviewIssue(issueNo: string) {
         where: { runId: run.id },
         data: {
           actualWave,
-          hit: hitCount > 0,
+          hit: outcome.hit,
           reviewedAt: new Date(),
         },
       });

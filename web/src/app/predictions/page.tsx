@@ -3,6 +3,8 @@ import { formatNumber, getWaveColor, macauIssueWhere } from "@/lib/marksix";
 import { formatPredictionReason } from "@/lib/prediction-reason";
 import { scheduledStrategies, strategyMeta } from "@/lib/strategies";
 import { type StrategyId } from "@/lib/types";
+import { waveSummaryFromDetailOrNumbers } from "@/lib/wave-summary";
+import { WaveBadge, WaveBadgeGroup } from "@/components/wave-badge";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -28,17 +30,15 @@ function formatDateTime(date: Date): string {
   return date.toISOString().replace("T", " ").slice(0, 16);
 }
 
-function WaveCharBadge({ detail }: { detail: { predictedWavesJson: string; excludedWave: string } | null }) {
-  if (!detail) return null;
-  const predictedWaves = JSON.parse(detail.predictedWavesJson) as string[];
+function WavePredictionSummary({ detail, numbers }: { detail: { predictedWavesJson: string; excludedWave: string } | null; numbers: number[] }) {
+  const summary = waveSummaryFromDetailOrNumbers(detail, numbers);
+  if (!summary) return null;
   return (
-    <div className="wave-badge-pair">
-      {predictedWaves.map((wave) => (
-        <span key={wave} className={`wave-char small ${wave === "红波" ? "bg-red" : wave === "蓝波" ? "bg-blue" : "bg-green"}`}>
-          {wave === "红波" ? "红" : wave === "蓝波" ? "蓝" : "绿"}
-        </span>
-      ))}
-      <span className="status-pill danger small" style={{ marginLeft: 4 }}>{detail.excludedWave}</span>
+    <div className="wave-summary">
+      <span className="kv">推荐</span>
+      <WaveBadgeGroup waves={summary.predictedWaves} size="sm" />
+      <span className="kv">排除</span>
+      <WaveBadge wave={summary.excludedWave} size="sm" />
     </div>
   );
 }
@@ -159,24 +159,31 @@ export default async function PredictionsPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {predictionHistory.map((run) => (
-                    <tr key={run.id}>
-                      <td>{run.issueNo}</td>
-                      <td>{strategyMeta[run.strategy as keyof typeof strategyMeta]?.name ?? run.strategy}</td>
-                      <td>{run.status === "REVIEWED" ? "已复盘" : "待开奖"}</td>
-                      <td>{formatDateTime(run.createdAt)}</td>
-                      <td>
-                        <WaveCharBadge detail={run.waveDetail} />
-                        <div className="history-balls">
-                          {run.picks.map((pick) => (
-                            <span key={pick.id} className={`history-ball ${waveClassName(pick.number)}`} title={formatPredictionReason(pick.reason)}>
-                              {formatNumber(pick.number)}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {predictionHistory.map((run) => {
+                    const isWaveStrategy = run.strategy === "wave_special_v1";
+
+                    return (
+                      <tr key={run.id}>
+                        <td>{run.issueNo}</td>
+                        <td>{strategyMeta[run.strategy as keyof typeof strategyMeta]?.name ?? run.strategy}</td>
+                        <td>{run.status === "REVIEWED" ? "已复盘" : "待开奖"}</td>
+                        <td>{formatDateTime(run.createdAt)}</td>
+                        <td>
+                          {isWaveStrategy ? (
+                            <WavePredictionSummary detail={run.waveDetail} numbers={run.picks.map((pick) => pick.number)} />
+                          ) : (
+                            <div className="history-balls">
+                              {run.picks.map((pick) => (
+                                <span key={pick.id} className={`history-ball ${waveClassName(pick.number)}`} title={formatPredictionReason(pick.reason)}>
+                                  {formatNumber(pick.number)}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

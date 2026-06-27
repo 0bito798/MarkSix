@@ -887,7 +887,7 @@ tbody tr:hover td {
   }
 }
 
-.wave-char {
+.wave-badge {
   display: inline-flex;
   width: 32px;
   height: 32px;
@@ -897,12 +897,34 @@ tbody tr:hover td {
   color: #fff;
   font-weight: 750;
   font-size: 14px;
+  line-height: 1;
   flex-shrink: 0;
+  vertical-align: middle;
 }
-.wave-char.bg-red { background: var(--red); }
-.wave-char.bg-blue { background: var(--blue); }
-.wave-char.bg-green { background: var(--green); }
-.wave-char.small { width: 24px; height: 24px; font-size: 11px; }
+.wave-badge-red { background: var(--red); }
+.wave-badge-blue { background: var(--blue); }
+.wave-badge-green { background: var(--green); }
+.wave-badge.small { width: 24px; height: 24px; font-size: 11px; }
+
+.wave-badge-group,
+.wave-summary,
+.wave-result-inline {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.wave-summary {
+  row-gap: 8px;
+}
+
+.wave-result-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
 
 .wave-panel { padding: 18px; }
 

@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { describeSpecialNumber, formatNumber, getWaveColor, inferYearFromIssue, macauIssueWhere } from "@/lib/marksix";
 import { formatPredictionReason } from "@/lib/prediction-reason";
 import { strategyMeta } from "@/lib/strategies";
+import { waveSummaryFromDetailOrNumbers } from "@/lib/wave-summary";
+import { parseWaveList, WaveBadge, WaveBadgeGroup, waveTitle } from "@/components/wave-badge";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -25,19 +27,9 @@ function waveClassName(number: number): string {
   return "ball-green";
 }
 
-function WaveChar({ wave, small }: { wave: string; small?: boolean }) {
-  const map: Record<string, { cls: string; char: string }> = {
-    "红波": { cls: "bg-red", char: "红" },
-    "蓝波": { cls: "bg-blue", char: "蓝" },
-    "绿波": { cls: "bg-green", char: "绿" },
-  };
-  const m = map[wave] ?? { cls: "", char: wave };
-  return <span className={`wave-char ${m.cls}${small ? " small" : ""}`}>{m.char}</span>;
-}
-
 function WaveRiskBoard({ detail }: { detail: { predictedWavesJson: string; excludedWave: string; riskJson: string | null; confidence: number; betLevel: string; confidenceNote: string } | null }) {
   if (!detail) return null;
-  const predictedWaves = JSON.parse(detail.predictedWavesJson) as string[];
+  const predictedWaves = parseWaveList(detail.predictedWavesJson);
   const risk = JSON.parse(detail.riskJson ?? "{}");
 
   return (
@@ -50,8 +42,8 @@ function WaveRiskBoard({ detail }: { detail: { predictedWavesJson: string; exclu
           return (
             <article key={wave} className={`wave-card ${recommended ? "is-recommended" : ""} ${excluded ? "is-excluded" : ""}`}>
               <div className="wave-card-head">
-                <WaveChar wave={wave} />
-                <strong>{wave}</strong>
+                <WaveBadge wave={wave} />
+                <strong>{waveTitle(wave)}</strong>
                 <span className={`status-pill small ${excluded ? "danger" : recommended ? "success" : "neutral"}`}>
                   {excluded ? "排除" : recommended ? "推荐" : "观察"}
                 </span>
@@ -68,12 +60,23 @@ function WaveRiskBoard({ detail }: { detail: { predictedWavesJson: string; exclu
         })}
       </div>
       <div className="metric-strip">
-        <div><span>推荐</span><strong>{predictedWaves.join(" / ")}</strong></div>
-        <div><span>排除</span><strong>{detail.excludedWave}</strong></div>
+        <div><span>推荐</span><strong><WaveBadgeGroup waves={predictedWaves} size="sm" /></strong></div>
+        <div><span>排除</span><strong><WaveBadge wave={detail.excludedWave} size="sm" /></strong></div>
         <div><span>置信度</span><strong>{(detail.confidence * 100).toFixed(1)}%</strong></div>
         <div><span>等级</span><strong>{detail.betLevel}</strong></div>
       </div>
       {detail.confidenceNote ? <p className="kv" style={{ marginTop: 10 }}>{detail.confidenceNote}</p> : null}
+    </section>
+  );
+}
+
+function WaveSummaryBoard({ predictedWaves, excludedWave }: { predictedWaves: string[]; excludedWave: string }) {
+  return (
+    <section className="wave-panel compact">
+      <div className="metric-strip">
+        <div><span>推荐</span><strong><WaveBadgeGroup waves={predictedWaves} size="sm" /></strong></div>
+        <div><span>排除</span><strong><WaveBadge wave={excludedWave} size="sm" /></strong></div>
+      </div>
     </section>
   );
 }
@@ -205,38 +208,52 @@ export default async function HomePage() {
       </div>
 
       <div className="grid">
-        {pendingRuns.map((run) => (
+        {pendingRuns.map((run) => {
+          const isWaveStrategy = run.strategy === "wave_special_v1";
+          const waveSummary = isWaveStrategy
+            ? waveSummaryFromDetailOrNumbers(run.waveDetail, run.picks.map((pick) => pick.number))
+            : null;
+
+          return (
           <article
             key={run.id}
             className="card"
           >
             <div className="card-head">
               <h3>{strategyMeta[run.strategy as keyof typeof strategyMeta]?.name ?? run.strategy}</h3>
-              <span className="badge">{run.picks.length} 个候选</span>
+              <span className="badge">{isWaveStrategy ? "波色方案" : `${run.picks.length} 个候选`}</span>
             </div>
             <p className="kv">{strategyMeta[run.strategy as keyof typeof strategyMeta]?.description}</p>
             <p className="kv">目标期号: {run.issueNo}</p>
             {run.waveDetail ? <WaveRiskBoard detail={run.waveDetail} /> : null}
-            <div className="numbers">
-              {run.picks.map((pick) => (
-                <span key={pick.id} className={`ball ${waveClassName(pick.number)}`} title={formatPredictionReason(pick.reason)}>
-                  {String(pick.number).padStart(2, "0")}
-                </span>
-              ))}
-            </div>
-            <div className="reason-list">
-              {run.picks.slice(0, 6).map((pick) => (
-                <div key={pick.id} className="reason-item">
-                  <span className="reason-order">{pick.rank}</span>
-                  <span className={`reason-ball ${waveClassName(pick.number)}`}>
-                    {String(pick.number).padStart(2, "0")}
-                  </span>
-                  <p className="kv reason-copy">{formatPredictionReason(pick.reason)}</p>
+            {isWaveStrategy && !run.waveDetail && waveSummary ? (
+              <WaveSummaryBoard predictedWaves={waveSummary.predictedWaves} excludedWave={waveSummary.excludedWave} />
+            ) : null}
+            {!isWaveStrategy ? (
+              <>
+                <div className="numbers">
+                  {run.picks.map((pick) => (
+                    <span key={pick.id} className={`ball ${waveClassName(pick.number)}`} title={formatPredictionReason(pick.reason)}>
+                      {String(pick.number).padStart(2, "0")}
+                    </span>
+                  ))}
                 </div>
-              ))}
-            </div>
+                <div className="reason-list">
+                  {run.picks.slice(0, 6).map((pick) => (
+                    <div key={pick.id} className="reason-item">
+                      <span className="reason-order">{pick.rank}</span>
+                      <span className={`reason-ball ${waveClassName(pick.number)}`}>
+                        {String(pick.number).padStart(2, "0")}
+                      </span>
+                      <p className="kv reason-copy">{formatPredictionReason(pick.reason)}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : null}
           </article>
-        ))}
+          );
+        })}
       </div>
 
       {pendingRuns.length === 0 ? (
