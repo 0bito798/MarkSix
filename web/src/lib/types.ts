@@ -1,3 +1,5 @@
+export type WaveColor = "红波" | "蓝波" | "绿波";
+
 export type CsvDrawRecord = {
   issueNo: string;
   drawDate: Date;
@@ -23,4 +25,15 @@ export type StrategyResult = {
     score: number;
     reason: string;
   }>;
+};
+
+export type WavePredictionResult = {
+  predictedWaves: WaveColor[];
+  excludedWave: WaveColor;
+  risk: Record<string, number>;
+  confidence: number;
+  betLevel: string;
+  confidenceNote: string;
+  voterPattern: WaveColor[];
+  recentCounts: Record<WaveColor, number>;
 };

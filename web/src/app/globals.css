@@ -10,6 +10,9 @@
   --line: rgba(135, 122, 94, 0.22);
   --shadow-soft: 0 18px 40px rgba(40, 35, 24, 0.08);
   --shadow-strong: 0 24px 60px rgba(20, 18, 14, 0.12);
+  --red: #dc2626;
+  --blue: #2563eb;
+  --green: #16a34a;
 }
 
 * {
@@ -882,4 +885,99 @@ tbody tr:hover td {
     height: 32px;
     font-size: 12px;
   }
+}
+
+.wave-char {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 750;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.wave-char.bg-red { background: var(--red); }
+.wave-char.bg-blue { background: var(--blue); }
+.wave-char.bg-green { background: var(--green); }
+.wave-char.small { width: 24px; height: 24px; font-size: 11px; }
+
+.wave-panel { padding: 18px; }
+
+.wave-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.wave-card {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius, 12px);
+  background: #fff;
+}
+.wave-card.is-recommended {
+  border-color: rgba(15,118,110,0.36);
+  background: #f7fffd;
+}
+.wave-card.is-excluded {
+  border-color: rgba(220,38,38,0.3);
+  background: #fffafa;
+}
+
+.wave-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wave-card-head strong { margin-right: auto; }
+
+.wave-card-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+}
+.wave-card-foot span { color: var(--muted); font-size: 12px; }
+
+.risk-meter {
+  height: 8px;
+  margin: 16px 0 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line-soft, #edf0f5);
+}
+.risk-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+.bg-red .risk-meter span { background: var(--red); }
+.bg-blue .risk-meter span { background: var(--blue); }
+.bg-green .risk-meter span { background: var(--green); }
+
+.metric-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.metric-strip > div {
+  padding: 10px;
+  border: 1px solid var(--line-soft, #edf0f5);
+  border-radius: 10px;
+}
+.metric-strip strong { display: block; margin-top: 4px; }
+
+.wave-badge-pair {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 760px) {
+  .wave-grid,
+  .metric-strip { grid-template-columns: 1fr; }
 }

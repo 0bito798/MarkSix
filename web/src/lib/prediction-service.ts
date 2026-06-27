@@ -1,7 +1,7 @@
 import { PredictionStatus } from "@prisma/client";
 import { getWaveColor, macauIssueWhere, nextMacauIssueNo } from "@/lib/marksix";
 import { prisma } from "@/lib/prisma";
-import { allStrategies, generateStrategyResult, generateWavePrediction } from "@/lib/strategies";
+import { allStrategies, generateStrategyResult, predictWaveColor } from "@/lib/strategies";
 import { type StrategyId } from "@/lib/types";
 
 function nextIssueNo(issueNo: string): string {
@@ -69,33 +69,22 @@ export async function generatePredictionsForIssue(issueNo: string, strategyIds?:
     });
 
     if (strategy === "wave_special_v1") {
-      const wavePrediction = generateWavePrediction(draws, issueNo);
+      const wavePrediction = predictWaveColor(draws, issueNo);
+      const common = {
+        issueNo,
+        predictedWavesJson: JSON.stringify(wavePrediction.predictedWaves),
+        excludedWave: wavePrediction.excludedWave,
+        riskJson: JSON.stringify(wavePrediction.risk),
+        confidence: wavePrediction.confidence,
+        betLevel: wavePrediction.betLevel,
+        confidenceNote: wavePrediction.confidenceNote,
+        voterPatternJson: JSON.stringify(wavePrediction.voterPattern),
+        recentCountsJson: JSON.stringify(wavePrediction.recentCounts),
+      };
       await prisma.wavePredictionDetail.upsert({
         where: { runId: run.id },
-        update: {
-          issueNo,
-          predictedWavesJson: JSON.stringify(wavePrediction.predictedWaves),
-          excludedWave: wavePrediction.excludedWave,
-          confidence: wavePrediction.confidence,
-          betLevel: wavePrediction.betLevel,
-          confidenceNote: wavePrediction.confidenceNote,
-          voterPatternJson: JSON.stringify(wavePrediction.voterPattern),
-          recentCountsJson: JSON.stringify(wavePrediction.recentCounts),
-          actualWave: null,
-          hit: null,
-          reviewedAt: null,
-        },
-        create: {
-          runId: run.id,
-          issueNo,
-          predictedWavesJson: JSON.stringify(wavePrediction.predictedWaves),
-          excludedWave: wavePrediction.excludedWave,
-          confidence: wavePrediction.confidence,
-          betLevel: wavePrediction.betLevel,
-          confidenceNote: wavePrediction.confidenceNote,
-          voterPatternJson: JSON.stringify(wavePrediction.voterPattern),
-          recentCountsJson: JSON.stringify(wavePrediction.recentCounts),
-        },
+        update: { ...common, actualWave: null, hit: null, reviewedAt: null },
+        create: { runId: run.id, ...common },
       });
     } else {
       await prisma.wavePredictionDetail.deleteMany({ where: { runId: run.id } });

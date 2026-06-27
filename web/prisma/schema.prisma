@@ -54,6 +54,7 @@ model WavePredictionDetail {
   confidence         Float
   betLevel           String
   confidenceNote     String
+  riskJson           String?
   voterPatternJson   String
   recentCountsJson   String
   actualWave         String?

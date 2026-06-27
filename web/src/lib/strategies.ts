@@ -18,6 +18,7 @@ type WaveColor = "红波" | "蓝波" | "绿波";
 type WavePrediction = {
   predictedWaves: WaveColor[];
   excludedWave: WaveColor;
+  risk: Record<string, number>;
   confidence: number;
   betLevel: string;
   confidenceNote: string;
@@ -571,19 +572,43 @@ function patternLowest(draws: Draw[], k: number, window: number): WaveColor {
   return lowestCountWave(counts);
 }
 
-function stateGatedWave(draws: Draw[]): WaveColor {
-  const counts = waveCounts(draws, 80);
-  const recent = waveCounts(draws, 10);
+function stateGatedWave(draws: Draw[], config?: Record<string, any>): WaveColor {
+  const cfg = {
+    omitProtect: 6, hotWindow: 10, protectBonus: 4,
+    omitSlope: 0.05, hotSlope: 0.2,
+    streakPenalty: 0.1, streakMin: 3, stateBias: 0.0,
+    ...config,
+  };
+  const hot = waveCounts(draws, cfg.hotWindow);
+  const latest = getWaveColor(draws[0].specialNumber);
+  let streak = 0;
+  for (const draw of draws) {
+    if (getWaveColor(draw.specialNumber) !== latest) break;
+    streak++;
+  }
   const raw: Record<WaveColor, number> = { 红波: 0, 蓝波: 0, 绿波: 0 };
   for (const color of WAVE_COLORS) {
-    const omission = waveOmission(draws, color);
-    raw[color] = counts[color] + Math.max(0, 6 - omission) * 0.5 - recent[color] * 0.4;
+    const omit = waveOmission(draws, color);
+    let value = cfg.stateBias;
+    if (omit >= cfg.omitProtect) {
+      value += cfg.protectBonus + (omit - cfg.omitProtect) * cfg.omitSlope;
+    }
+    value += hot[color] * cfg.hotSlope;
+    if (color === latest && streak >= cfg.streakMin) {
+      value -= cfg.streakPenalty * streak;
+    }
+    raw[color] = Math.max(0.01, value);
   }
   return lowestCountWave(raw);
 }
 
-function blendWave(draws: Draw[], issueNo: string): WaveColor {
-  const votes = [mainWaveLowest(draws, 80), patternLowest(draws, 2, 500), issueModLowest(draws, issueNo, 7)];
+function blendWave(draws: Draw[], issueNo: string, config?: Record<string, any>): WaveColor {
+  const cfg = { mainWindow: 80, patternK: 2, patternWindow: 500, mod: 7, ...config };
+  const votes = [
+    mainWaveLowest(draws, cfg.mainWindow),
+    patternLowest(draws, cfg.patternK, cfg.patternWindow),
+    issueModLowest(draws, issueNo, cfg.mod),
+  ];
   const counts: Record<WaveColor, number> = { 红波: 0, 蓝波: 0, 绿波: 0 };
   for (const vote of votes) {
     counts[vote] += vote === votes[0] ? 2 : 1;
@@ -591,47 +616,270 @@ function blendWave(draws: Draw[], issueNo: string): WaveColor {
   return WAVE_COLORS.reduce((best, color) => (counts[color] > counts[best] ? color : best));
 }
 
-function calibrateWaveBetLevel(confidence: number, excluded: WaveColor, votes: Record<WaveColor, number>, recentCounts: Record<WaveColor, number>): [string, string] {
-  const excludedVoteCount = votes[excluded];
-  if (confidence >= 0.9) return ["D级", "原始置信度0.90+样本少且历史不稳，不按高置信处理"];
-  if (excludedVoteCount === 1) return ["S级", "反多数修正形态，覆盖较低但历史表现较强"];
-  if (excluded === "绿波" || (confidence >= 0.65 && confidence < 0.7) || (confidence >= 0.75 && confidence < 0.8)) return ["A级", "波色分桶历史表现较强，仍需实盘验证"];
-  if (excluded === "蓝波" && recentCounts.蓝波 < 5) return ["C级", "排除蓝波且近期蓝波不热，历史风险偏高"];
-  if (confidence >= 0.8 && confidence < 0.9) return ["C级", "原始置信度0.80-0.90历史波动较大"];
-  return ["B级", "普通稳健信号"];
+function calibrateWaveBetLevel(confidence: number, excluded: WaveColor, voterPattern: WaveColor[], votes: Record<WaveColor, number>, recentCounts: Record<WaveColor, number>): [string, string] {
+  if (confidence >= 0.90) return ["D级", "原始置信度>=0.90：当前回测命中偏低，越自信越容易错"];
+  if (excluded === "红波") return ["C级", "排除红波：覆盖32/49，结构上弱于排蓝/绿；当前回测命中约65%-67%"];
+  return ["B级", "排除蓝/绿波：覆盖33/49；当前回测约69%，无可靠的更高把握档"];
 }
 
 export function generateWavePrediction(recentDraws: Draw[], issueNo: string): WavePrediction {
-  const state = stateGatedWave(recentDraws);
-  const voters = [state, mainWaveLowest(recentDraws, 80), blendWave(recentDraws, issueNo), rollingLowestWave(recentDraws, 30), patternLowest(recentDraws, 2, 500)];
+  const cfg = {
+    mainWindow: 80,
+    greenOmissionVeto: 8,
+    hotProtectColors: ["绿波", "蓝波"],
+    hotProtectWindow: 10,
+    hotProtectCount: 5,
+    enableGenericPostRules: 1,
+    enableSteadyConfidenceBandRules: 1,
+    redLowOmitConfBand: 2,
+    blueHotMod8Count: 5,
+    greenOmitRoll10: 6,
+    redOmitRoll30: 4,
+    steadyConfLow: 0.685,
+    steadyConfHigh: 0.75,
+    omitProtect: 6, hotWindow: 10, protectBonus: 4,
+    omitSlope: 0.05, hotSlope: 0.2,
+    streakPenalty: 0.1, streakMin: 3, stateBias: 0.0,
+  };
+
+  const state = stateGatedWave(recentDraws, cfg);
+  const voters = [state, mainWaveLowest(recentDraws, cfg.mainWindow), blendWave(recentDraws, issueNo, cfg), rollingLowestWave(recentDraws, 30), patternLowest(recentDraws, 2, 500)];
   const votes: Record<WaveColor, number> = { 红波: 0, 蓝波: 0, 绿波: 0 };
   for (const vote of voters) votes[vote] += 1;
-  let excluded = WAVE_COLORS.reduce((best, color) => (votes[color] > votes[best] ? color : best));
+
+  const topCount = Math.max(...Object.values(votes));
+  const topColors = WAVE_COLORS.filter((c) => votes[c] === topCount);
   const risk = normalizeWaveRisk({ 红波: votes.红波, 蓝波: votes.蓝波, 绿波: votes.绿波 });
-  const recentCounts = waveCounts(recentDraws, 10);
-  if (excluded === "绿波" && waveOmission(recentDraws, "绿波") >= 8) excluded = state !== "绿波" ? state : "红波";
-  if ((excluded === "绿波" || excluded === "蓝波") && recentCounts[excluded] >= 5 && state !== excluded) excluded = state;
-  const patternKey = voters.join("|");
-  const patternOverrides: Record<string, WaveColor> = {
-    "绿波|蓝波|蓝波|蓝波|蓝波": "红波",
-    "蓝波|蓝波|绿波|蓝波|绿波": "红波",
-  };
-  excluded = patternOverrides[patternKey] ?? excluded;
-  if (excluded === "蓝波" && recentCounts.蓝波 >= 5) excluded = issueModLowest(recentDraws, issueNo, 8);
-  if (excluded === "绿波" && waveOmission(recentDraws, "绿波") >= 6) excluded = rollingLowestWave(recentDraws, 10);
-  if (excluded === "红波" && waveOmission(recentDraws, "红波") >= 4) excluded = rollingLowestWave(recentDraws, 30);
+  let excluded = topColors.length === 1 ? topColors[0] : topColors.reduce((best, c) => risk[c] < risk[best] ? c : best);
+
+  const recentCounts = waveCounts(recentDraws, cfg.hotProtectWindow);
+
+  if (excluded === "绿波" && waveOmission(recentDraws, "绿波") >= cfg.greenOmissionVeto) {
+    excluded = state !== "绿波" ? state : WAVE_COLORS.find((c) => c !== "绿波")!;
+  }
+
+  if (cfg.hotProtectColors.includes(excluded) && recentCounts[excluded] >= cfg.hotProtectCount && state !== excluded) {
+    excluded = state;
+  }
+
+  if (cfg.enableGenericPostRules) {
+    if (excluded === "蓝波" && recentCounts.蓝波 >= cfg.blueHotMod8Count) {
+      excluded = issueModLowest(recentDraws, issueNo, 8);
+    }
+    if (excluded === "绿波" && waveOmission(recentDraws, "绿波") >= cfg.greenOmitRoll10) {
+      excluded = rollingLowestWave(recentDraws, 10);
+    }
+    if (excluded === "红波" && waveOmission(recentDraws, "红波") >= cfg.redOmitRoll30) {
+      excluded = rollingLowestWave(recentDraws, 30);
+    }
+  }
+
   const confidence = confidenceFromRisk(risk);
-  if (confidence >= 0.7 && confidence < 0.75 && waveOmission(recentDraws, "红波") <= 2) excluded = "红波";
-  const [betLevel, confidenceNote] = calibrateWaveBetLevel(confidence, excluded, votes, recentCounts);
+  if (cfg.enableSteadyConfidenceBandRules && confidence >= cfg.steadyConfLow && confidence < cfg.steadyConfHigh && waveOmission(recentDraws, "红波") <= cfg.redLowOmitConfBand) {
+    excluded = "红波";
+  }
+
+  const [betLevel, confidenceNote] = calibrateWaveBetLevel(confidence, excluded, voters, votes, recentCounts);
+
   return {
     predictedWaves: WAVE_COLORS.filter((color) => color !== excluded),
     excludedWave: excluded,
+    risk,
     confidence: Number(confidence.toFixed(4)),
     betLevel,
     confidenceNote,
     voterPattern: voters,
     recentCounts,
   };
+}
+
+function predictedWavesFromExcluded(excluded: WaveColor): WaveColor[] {
+  return WAVE_COLORS.filter((c) => c !== excluded);
+}
+
+type ExpertPrediction = {
+  excluded: WaveColor;
+  risk: Record<WaveColor, number>;
+  confidence: number;
+  voterPattern: WaveColor[];
+  votes: Record<WaveColor, number>;
+  recentCounts: Record<WaveColor, number>;
+};
+
+type SegmentedState = {
+  stats: Record<string, Record<string, [number, number]>>;
+  queue: Array<[string[], Record<string, boolean>]>;
+  expertNames: string[];
+};
+
+function segmentedSpecialistExperts(draws: Draw[], issueNo: string, baseCfg: Record<string, any>): Record<string, ExpertPrediction> {
+  const wrap = (fn: () => WaveColor): ExpertPrediction => {
+    const excluded = fn();
+    return { excluded, risk: { 红波: 0, 蓝波: 0, 绿波: 0 }, confidence: 0, voterPattern: [], votes: { 红波: 0, 蓝波: 0, 绿波: 0 }, recentCounts: { 红波: 0, 蓝波: 0, 绿波: 0 } };
+  };
+  return {
+    clean: wrap(() => generateWavePrediction(draws, issueNo).excludedWave),
+    main120: wrap(() => mainWaveLowest(draws, 120)),
+    roll30: wrap(() => rollingLowestWave(draws, 30)),
+    roll80: wrap(() => rollingLowestWave(draws, 80)),
+    pat2: wrap(() => patternLowest(draws, 2, 500)),
+    mod7: wrap(() => issueModLowest(draws, issueNo, 7)),
+    mod8: wrap(() => issueModLowest(draws, issueNo, 8)),
+    mod9: wrap(() => issueModLowest(draws, issueNo, 9)),
+    blend: wrap(() => blendWave(draws, issueNo, baseCfg)),
+    state: wrap(() => stateGatedWave(draws, baseCfg)),
+    rollH5: wrap(() => WAVE_COLORS.reduce((best, c) => waveCounts(draws, 5)[c] > waveCounts(draws, 5)[best] ? c : best)),
+    mainH200: wrap(() => {
+      const counts: Record<WaveColor, number> = { 红波: 0, 蓝波: 0, 绿波: 0 };
+      for (const draw of draws.slice(0, Math.min(200, draws.length))) {
+        for (const n of decodeDrawNumbers(draw)) counts[getWaveColor(n)] += 1;
+      }
+      return WAVE_COLORS.reduce((best, c) => counts[c] > counts[best] ? c : best);
+    }),
+  };
+}
+
+function smallCountBin(value: number): number {
+  if (value <= 1) return 0;
+  if (value <= 3) return 1;
+  if (value <= 5) return 2;
+  return 3;
+}
+
+function smallOmissionBin(value: number): number {
+  if (value <= 1) return 0;
+  if (value <= 3) return 1;
+  if (value <= 5) return 2;
+  if (value <= 8) return 3;
+  return 4;
+}
+
+function segmentedSpecialistAtoms(draws: Draw[], issueNo: string, basePred: WavePrediction, experts: Record<string, ExpertPrediction>): string[] {
+  const voterPattern = basePred.voterPattern.map((c) => String(c));
+  const voteShape = [...Object.values(basePred.risk).map((_, i, a) => a.filter((v) => v === a[i]).length).sort((a, b) => b - a).slice(0, 3)];
+  const confidenceBin = Math.floor((basePred.confidence + 1e-9) / 0.05);
+  const excluded = basePred.excludedWave;
+  const atoms = [
+    `base=${excluded}`,
+    `shape=(${voteShape})`,
+    `conf=${confidenceBin}`,
+    `base_shape=${excluded}|(${voteShape})`,
+    `base_conf=${excluded}|${confidenceBin}`,
+  ];
+  for (const [name, pred] of Object.entries(experts)) {
+    atoms.push(`exp_${name}=${pred.excluded}`);
+  }
+  atoms.push("omit=(" + WAVE_COLORS.map((c) => smallOmissionBin(waveOmission(draws, c))).join(",") + ")");
+  for (const window of [10, 20, 30, 80]) {
+    const counts = waveCounts(draws, window);
+    atoms.push("cnt" + window + "=(" + WAVE_COLORS.map((c) => smallCountBin(counts[c])).join(",") + ")");
+    atoms.push("low" + window + "=" + WAVE_COLORS.reduce((best, c) => counts[c] < counts[best] ? c : best));
+    atoms.push("high" + window + "=" + WAVE_COLORS.reduce((best, c) => counts[c] > counts[best] ? c : best));
+  }
+  for (const length of [1, 2, 3]) {
+    if (draws.length >= length) {
+      atoms.push("last" + length + "=" + draws.slice(0, length).map((d) => getWaveColor(d.specialNumber)).join(">"));
+    }
+  }
+  const seq = Number(issueNo.slice(-3));
+  if (Number.isFinite(seq)) {
+    for (const mod of [7, 8, 9, 10, 20]) {
+      atoms.push("imod" + mod + "=" + (seq % mod));
+    }
+  }
+  return atoms;
+}
+
+function segmentedSpecialistSelect(atoms: string[], expertExclusions: Record<string, string>, state: SegmentedState, cfg: Record<string, any>): string {
+  const minSamples = cfg.segmentedMinSamples ?? 1;
+  const alpha = cfg.segmentedAlpha ?? 0.45;
+  const threshold = cfg.segmentedThreshold ?? 0.0675;
+  let bestName = "clean", bestScore = -1, cleanScore = -1;
+  for (const name of state.expertNames) {
+    let totalScore = 0, totalAtoms = 0;
+    for (const atom of atoms) {
+      const entry = state.stats[atom]?.[name];
+      if (entry) {
+        const [samples, hits] = entry;
+        if (samples >= minSamples) {
+          totalScore += (hits + alpha) / (samples + 2 * alpha);
+          totalAtoms += 1;
+        }
+      }
+    }
+    const score = totalAtoms > 0 ? totalScore / totalAtoms : -1;
+    if (name === "clean") cleanScore = score;
+    if (score > bestScore) { bestName = name; bestScore = score; }
+  }
+  if (bestScore < 0 || (cleanScore >= 0 && bestScore < cleanScore + threshold)) {
+    bestName = "clean";
+  }
+  return expertExclusions[bestName] ?? expertExclusions["clean"] ?? "蓝波";
+}
+
+export function predictWaveColor(draws: Draw[], issueNo: string): WavePrediction {
+  const cfg = {
+    segmentedMinSamples: 1, segmentedAlpha: 0.45,
+    segmentedThreshold: 0.0675, segmentedWindow: 193,
+  };
+  const minHistory = 80;
+
+  if (draws.length <= minHistory) {
+    return generateWavePrediction(draws, issueNo);
+  }
+
+  const orderedDraws = [...draws].reverse();
+  const baseCfg = {};
+  const experts = segmentedSpecialistExperts(orderedDraws, issueNo, baseCfg);
+  const basePred = generateWavePrediction(orderedDraws, issueNo);
+  const atoms = segmentedSpecialistAtoms(orderedDraws, issueNo, basePred, experts);
+  const expertExclusions: Record<string, string> = {};
+  for (const [name, pred] of Object.entries(experts)) {
+    expertExclusions[name] = pred.excluded;
+  }
+
+  const state: SegmentedState = { stats: {}, queue: [], expertNames: Object.keys(experts) };
+
+  for (let index = minHistory; index < orderedDraws.length; index++) {
+    const rowHistory = orderedDraws.slice(orderedDraws.length - index);
+    const rowPred = generateWavePrediction(rowHistory, issueNo);
+    const rowExperts = segmentedSpecialistExperts(rowHistory, issueNo, baseCfg);
+    const rowAtoms = segmentedSpecialistAtoms(rowHistory, issueNo, rowPred, rowExperts);
+    const rowExclusions: Record<string, string> = {};
+    for (const [name, p] of Object.entries(rowExperts)) rowExclusions[name] = p.excluded;
+    const actualWave = getWaveColor(orderedDraws[index - 1].specialNumber);
+    const rowHits: Record<string, boolean> = {};
+    for (const name of state.expertNames) {
+      const exc = rowExclusions[name] ?? expertExclusions[name];
+      rowHits[name] = exc !== actualWave;
+    }
+    for (const atom of rowAtoms) {
+      if (!state.stats[atom]) state.stats[atom] = {};
+      for (const name of state.expertNames) {
+        if (!state.stats[atom][name]) state.stats[atom][name] = [0, 0];
+        state.stats[atom][name][0] += 1;
+        state.stats[atom][name][1] += rowHits[name] ? 1 : 0;
+      }
+    }
+    state.queue.push([rowAtoms, rowHits]);
+    if (state.queue.length > cfg.segmentedWindow) {
+      const [oldAtoms, oldHits] = state.queue.shift()!;
+      for (const atom of oldAtoms) {
+        if (!state.stats[atom]) continue;
+        for (const name of state.expertNames) {
+          if (!state.stats[atom][name]) continue;
+          state.stats[atom][name][0] -= 1;
+          state.stats[atom][name][1] -= oldHits[name] ? 1 : 0;
+        }
+      }
+    }
+  }
+
+  const selectedExcluded = segmentedSpecialistSelect(atoms, expertExclusions, state, cfg);
+
+  const out = { ...basePred, excludedWave: selectedExcluded as WaveColor };
+  out.predictedWaves = predictedWavesFromExcluded(out.excludedWave);
+  return out;
 }
 
 function pickTopCandidates(

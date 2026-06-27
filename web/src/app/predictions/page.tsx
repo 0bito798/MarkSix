@@ -28,12 +28,19 @@ function formatDateTime(date: Date): string {
   return date.toISOString().replace("T", " ").slice(0, 16);
 }
 
-function waveSummary(detail?: { predictedWavesJson: string; excludedWave: string; betLevel: string; confidence: number } | null): string | null {
-  if (!detail) {
-    return null;
-  }
+function WaveCharBadge({ detail }: { detail: { predictedWavesJson: string; excludedWave: string } | null }) {
+  if (!detail) return null;
   const predictedWaves = JSON.parse(detail.predictedWavesJson) as string[];
-  return `波色方案：推荐 ${predictedWaves.join("+")}，排除 ${detail.excludedWave} · 等级 ${detail.betLevel} · 置信度 ${detail.confidence.toFixed(4)}`;
+  return (
+    <div className="wave-badge-pair">
+      {predictedWaves.map((wave) => (
+        <span key={wave} className={`wave-char small ${wave === "红波" ? "bg-red" : wave === "蓝波" ? "bg-blue" : "bg-green"}`}>
+          {wave === "红波" ? "红" : wave === "蓝波" ? "蓝" : "绿"}
+        </span>
+      ))}
+      <span className="status-pill danger small" style={{ marginLeft: 4 }}>{detail.excludedWave}</span>
+    </div>
+  );
 }
 
 function parsePage(value?: string): number {
@@ -108,7 +115,7 @@ export default async function PredictionsPage({
           <p className="eyebrow">Predictions</p>
           <h2>预测历史</h2>
         </div>
-        <p className="kv">展示数据库中已经保存的特别号码预测批次，马尔科夫转移方案可单独筛选和追踪。</p>
+        <p className="kv">展示数据库中已经保存的特别号码预测批次。</p>
       </div>
 
       <div className="card">
@@ -159,7 +166,7 @@ export default async function PredictionsPage({
                       <td>{run.status === "REVIEWED" ? "已复盘" : "待开奖"}</td>
                       <td>{formatDateTime(run.createdAt)}</td>
                       <td>
-                        {waveSummary(run.waveDetail) ? <p className="kv compact-line">{waveSummary(run.waveDetail)}</p> : null}
+                        <WaveCharBadge detail={run.waveDetail} />
                         <div className="history-balls">
                           {run.picks.map((pick) => (
                             <span key={pick.id} className={`history-ball ${waveClassName(pick.number)}`} title={formatPredictionReason(pick.reason)}>

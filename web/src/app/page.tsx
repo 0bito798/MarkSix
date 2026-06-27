@@ -25,12 +25,57 @@ function waveClassName(number: number): string {
   return "ball-green";
 }
 
-function waveSummary(detail?: { predictedWavesJson: string; excludedWave: string; betLevel: string; confidence: number } | null): string | null {
-  if (!detail) {
-    return null;
-  }
+function WaveChar({ wave, small }: { wave: string; small?: boolean }) {
+  const map: Record<string, { cls: string; char: string }> = {
+    "红波": { cls: "bg-red", char: "红" },
+    "蓝波": { cls: "bg-blue", char: "蓝" },
+    "绿波": { cls: "bg-green", char: "绿" },
+  };
+  const m = map[wave] ?? { cls: "", char: wave };
+  return <span className={`wave-char ${m.cls}${small ? " small" : ""}`}>{m.char}</span>;
+}
+
+function WaveRiskBoard({ detail }: { detail: { predictedWavesJson: string; excludedWave: string; riskJson: string | null; confidence: number; betLevel: string; confidenceNote: string } | null }) {
+  if (!detail) return null;
   const predictedWaves = JSON.parse(detail.predictedWavesJson) as string[];
-  return `波色方案：推荐 ${predictedWaves.join("+")}，排除 ${detail.excludedWave} · 等级 ${detail.betLevel} · 置信度 ${detail.confidence.toFixed(4)}`;
+  const risk = JSON.parse(detail.riskJson ?? "{}");
+
+  return (
+    <section className="wave-panel">
+      <div className="wave-grid">
+        {["红波", "蓝波", "绿波"].map((wave) => {
+          const recommended = predictedWaves.includes(wave);
+          const excluded = detail.excludedWave === wave;
+          const riskVal = risk[wave] ?? 0;
+          return (
+            <article key={wave} className={`wave-card ${recommended ? "is-recommended" : ""} ${excluded ? "is-excluded" : ""}`}>
+              <div className="wave-card-head">
+                <WaveChar wave={wave} />
+                <strong>{wave}</strong>
+                <span className={`status-pill small ${excluded ? "danger" : recommended ? "success" : "neutral"}`}>
+                  {excluded ? "排除" : recommended ? "推荐" : "观察"}
+                </span>
+              </div>
+              <div className="risk-meter">
+                <span style={{ width: `${Math.min(riskVal * 100, 100)}%` }} />
+              </div>
+              <div className="wave-card-foot">
+                <span>风险</span>
+                <strong>{riskVal >= 1 ? "100%" : `${(riskVal * 100).toFixed(1)}%`}</strong>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      <div className="metric-strip">
+        <div><span>推荐</span><strong>{predictedWaves.join(" / ")}</strong></div>
+        <div><span>排除</span><strong>{detail.excludedWave}</strong></div>
+        <div><span>置信度</span><strong>{(detail.confidence * 100).toFixed(1)}%</strong></div>
+        <div><span>等级</span><strong>{detail.betLevel}</strong></div>
+      </div>
+      {detail.confidenceNote ? <p className="kv" style={{ marginTop: 10 }}>{detail.confidenceNote}</p> : null}
+    </section>
+  );
 }
 
 const featuredStrategyIds = [
@@ -171,7 +216,7 @@ export default async function HomePage() {
             </div>
             <p className="kv">{strategyMeta[run.strategy as keyof typeof strategyMeta]?.description}</p>
             <p className="kv">目标期号: {run.issueNo}</p>
-            {waveSummary(run.waveDetail) ? <p className="special-chip">{waveSummary(run.waveDetail)}</p> : null}
+            {run.waveDetail ? <WaveRiskBoard detail={run.waveDetail} /> : null}
             <div className="numbers">
               {run.picks.map((pick) => (
                 <span key={pick.id} className={`ball ${waveClassName(pick.number)}`} title={formatPredictionReason(pick.reason)}>

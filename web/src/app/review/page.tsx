@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+﻿import { prisma } from "@/lib/prisma";
 import { describeSpecialNumber, inferYearFromIssue, macauIssueWhere } from "@/lib/marksix";
 import { strategyMeta } from "@/lib/strategies";
 import { type StrategyId } from "@/lib/types";
@@ -49,12 +49,19 @@ function parseHit(value?: string): HitFilter {
   return value === "hit" || value === "miss" ? value : "all";
 }
 
-function waveSummary(detail?: { predictedWavesJson: string; excludedWave: string; betLevel: string; confidence: number } | null): string | null {
-  if (!detail) {
-    return null;
-  }
+function WaveCharBadge({ detail }: { detail: { predictedWavesJson: string; excludedWave: string } | null }) {
+  if (!detail) return null;
   const predictedWaves = JSON.parse(detail.predictedWavesJson) as string[];
-  return `波色方案：推荐 ${predictedWaves.join("+")}，排除 ${detail.excludedWave} · 等级 ${detail.betLevel} · 置信度 ${detail.confidence.toFixed(4)}`;
+  return (
+    <div className="wave-badge-pair">
+      {predictedWaves.map((wave) => (
+        <span key={wave} className={`wave-char small ${wave === "红波" ? "bg-red" : wave === "蓝波" ? "bg-blue" : "bg-green"}`}>
+          {wave === "红波" ? "红" : wave === "蓝波" ? "蓝" : "绿"}
+        </span>
+      ))}
+      <span className="status-pill danger small" style={{ marginLeft: 4 }}>{detail.excludedWave}</span>
+    </div>
+  );
 }
 
 function buildReviewHref(page: number, strategy: StrategyFilter, hit: HitFilter): string {
@@ -130,7 +137,7 @@ export default async function ReviewPage({
           <p className="eyebrow">Review</p>
           <h2>特别号码复盘</h2>
         </div>
-        <p className="kv">命中以“候选池是否包含当期特别号”为准，马尔科夫转移方案已纳入复盘筛选和策略总览。</p>
+        <p className="kv">命中以“候选池是否包含当期特别号”为准。</p>
       </div>
 
       <div className="card">
@@ -225,7 +232,7 @@ export default async function ReviewPage({
                         <td>{describeSpecialNumber(review.draw.specialNumber, year)}</td>
                         <td>
                           {strategyMeta[review.run.strategy as keyof typeof strategyMeta]?.name ?? review.run.strategy}
-                          {waveSummary(review.run.waveDetail) ? <p className="kv compact-line">{waveSummary(review.run.waveDetail)}</p> : null}
+                          <WaveCharBadge detail={review.run.waveDetail} />
                         </td>
                         <td>{review.hitCount > 0 ? "命中" : "未中"}</td>
                         <td>{matched.length > 0 ? matched.map((number) => String(number).padStart(2, "0")).join(", ") : "-"}</td>
