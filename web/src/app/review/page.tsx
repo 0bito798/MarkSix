@@ -1,7 +1,9 @@
 ﻿import { prisma } from "@/lib/prisma";
-import { describeSpecialNumber, inferYearFromIssue, macauIssueWhere } from "@/lib/marksix";
+import { describeSpecialNumber, getWaveColor, inferYearFromIssue, macauIssueWhere } from "@/lib/marksix";
 import { strategyMeta } from "@/lib/strategies";
 import { type StrategyId } from "@/lib/types";
+import { waveSummaryFromDetailOrNumbers } from "@/lib/wave-summary";
+import { WaveBadge, WaveBadgeGroup } from "@/components/wave-badge";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -49,18 +51,31 @@ function parseHit(value?: string): HitFilter {
   return value === "hit" || value === "miss" ? value : "all";
 }
 
-function WaveCharBadge({ detail }: { detail: { predictedWavesJson: string; excludedWave: string } | null }) {
-  if (!detail) return null;
-  const predictedWaves = JSON.parse(detail.predictedWavesJson) as string[];
+function WaveReviewSummary({ detail, numbers, actualWave }: { detail: { predictedWavesJson: string; excludedWave: string } | null; numbers: number[]; actualWave?: string | null }) {
+  const summary = waveSummaryFromDetailOrNumbers(detail, numbers);
+  if (!summary) return null;
   return (
-    <div className="wave-badge-pair">
-      {predictedWaves.map((wave) => (
-        <span key={wave} className={`wave-char small ${wave === "红波" ? "bg-red" : wave === "蓝波" ? "bg-blue" : "bg-green"}`}>
-          {wave === "红波" ? "红" : wave === "蓝波" ? "蓝" : "绿"}
-        </span>
-      ))}
-      <span className="status-pill danger small" style={{ marginLeft: 4 }}>{detail.excludedWave}</span>
+    <div className="wave-summary">
+      <span className="kv">推荐</span>
+      <WaveBadgeGroup waves={summary.predictedWaves} size="sm" />
+      <span className="kv">排除</span>
+      <WaveBadge wave={summary.excludedWave} size="sm" />
+      {actualWave ? (
+        <>
+          <span className="kv">实际</span>
+          <WaveBadge wave={actualWave} size="sm" />
+        </>
+      ) : null}
     </div>
+  );
+}
+
+function WaveReviewResult({ hit, actualWave }: { hit: boolean; actualWave: string }) {
+  return (
+    <span className="wave-result-inline">
+      {hit ? "命中波色" : "未命中波色"}
+      <WaveBadge wave={actualWave} size="sm" />
+    </span>
   );
 }
 
@@ -105,7 +120,7 @@ export default async function ReviewPage({
   const reviews = await prisma.predictionReview.findMany({
     where: reviewWhere,
     include: {
-      run: { include: { waveDetail: true } },
+      run: { include: { picks: true, waveDetail: true } },
       draw: true,
     },
     orderBy: { createdAt: "desc" },
@@ -137,7 +152,7 @@ export default async function ReviewPage({
           <p className="eyebrow">Review</p>
           <h2>特别号码复盘</h2>
         </div>
-        <p className="kv">命中以“候选池是否包含当期特别号”为准。</p>
+        <p className="kv">号码方案按候选池是否包含当期特别号判断；波色排除方案按实际波色是否落入推荐波色判断。</p>
       </div>
 
       <div className="card">
@@ -218,24 +233,26 @@ export default async function ReviewPage({
                     <th>当期特别号</th>
                     <th>策略</th>
                     <th>是否命中</th>
-                    <th>命中号码</th>
+                    <th>命中结果</th>
                   </tr>
                 </thead>
                 <tbody>
                   {reviews.map((review) => {
                     const matched = parseJsonArray(review.matchedNumbersJson);
                     const year = inferYearFromIssue(review.draw.issueNo, review.draw.drawDate.getUTCFullYear());
+                    const isWaveStrategy = review.run.strategy === "wave_special_v1";
+                    const actualWave = getWaveColor(review.draw.specialNumber);
 
                     return (
                       <tr key={review.id}>
                         <td>{review.draw.issueNo}</td>
-                        <td>{describeSpecialNumber(review.draw.specialNumber, year)}</td>
+                        <td>{isWaveStrategy ? <WaveBadge wave={actualWave} size="sm" /> : describeSpecialNumber(review.draw.specialNumber, year)}</td>
                         <td>
                           {strategyMeta[review.run.strategy as keyof typeof strategyMeta]?.name ?? review.run.strategy}
-                          <WaveCharBadge detail={review.run.waveDetail} />
+                          {isWaveStrategy ? <WaveReviewSummary detail={review.run.waveDetail} numbers={review.run.picks.map((pick) => pick.number)} actualWave={actualWave} /> : null}
                         </td>
                         <td>{review.hitCount > 0 ? "命中" : "未中"}</td>
-                        <td>{matched.length > 0 ? matched.map((number) => String(number).padStart(2, "0")).join(", ") : "-"}</td>
+                        <td>{isWaveStrategy ? <WaveReviewResult hit={review.hitCount > 0} actualWave={actualWave} /> : matched.length > 0 ? matched.map((number) => String(number).padStart(2, "0")).join(", ") : "-"}</td>
                       </tr>
                     );
                   })}
