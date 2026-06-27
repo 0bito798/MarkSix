@@ -27,6 +27,16 @@ function waveClassName(number: number): string {
   return "ball-green";
 }
 
+function waveCardClassName(wave: string): string {
+  if (wave === "红波") {
+    return "wave-card-red";
+  }
+  if (wave === "蓝波") {
+    return "wave-card-blue";
+  }
+  return "wave-card-green";
+}
+
 function WaveRiskBoard({ detail }: { detail: { predictedWavesJson: string; excludedWave: string; riskJson: string | null; confidence: number; betLevel: string; confidenceNote: string } | null }) {
   if (!detail) return null;
   const predictedWaves = parseWaveList(detail.predictedWavesJson);
@@ -40,7 +50,7 @@ function WaveRiskBoard({ detail }: { detail: { predictedWavesJson: string; exclu
           const excluded = detail.excludedWave === wave;
           const riskVal = risk[wave] ?? 0;
           return (
-            <article key={wave} className={`wave-card ${recommended ? "is-recommended" : ""} ${excluded ? "is-excluded" : ""}`}>
+            <article key={wave} className={`wave-card ${waveCardClassName(wave)} ${recommended ? "is-recommended" : ""} ${excluded ? "is-excluded" : ""}`}>
               <div className="wave-card-head">
                 <WaveBadge wave={wave} />
                 <strong>{waveTitle(wave)}</strong>

@@ -926,19 +926,31 @@ tbody tr:hover td {
   flex-wrap: wrap;
 }
 
-.wave-panel { padding: 18px; }
+.wave-panel {
+  padding: 14px 0 0;
+  width: 100%;
+}
+
+.wave-panel.compact {
+  padding-top: 12px;
+}
 
 .wave-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 10px;
 }
 
 .wave-card {
-  padding: 14px;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  min-height: 112px;
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius, 12px);
   background: #fff;
+  overflow: hidden;
 }
 .wave-card.is-recommended {
   border-color: rgba(15,118,110,0.36);
@@ -952,21 +964,38 @@ tbody tr:hover td {
 .wave-card-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: nowrap;
 }
-.wave-card-head strong { margin-right: auto; }
+.wave-card-head strong {
+  min-width: 0;
+  margin-right: auto;
+  white-space: nowrap;
+}
+.wave-card-head .status-pill {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 
 .wave-card-foot {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 10px;
+  gap: 8px;
+  min-width: 0;
 }
-.wave-card-foot span { color: var(--muted); font-size: 12px; }
+.wave-card-foot span {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.wave-card-foot strong {
+  white-space: nowrap;
+}
 
 .risk-meter {
   height: 8px;
-  margin: 16px 0 10px;
   overflow: hidden;
   border-radius: 999px;
   background: var(--line-soft, #edf0f5);
@@ -976,27 +1005,49 @@ tbody tr:hover td {
   height: 100%;
   border-radius: inherit;
 }
-.bg-red .risk-meter span { background: var(--red); }
-.bg-blue .risk-meter span { background: var(--blue); }
-.bg-green .risk-meter span { background: var(--green); }
+.wave-card-red .risk-meter span { background: var(--red); }
+.wave-card-blue .risk-meter span { background: var(--blue); }
+.wave-card-green .risk-meter span { background: var(--green); }
 
 .metric-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
   gap: 10px;
+  margin-top: 10px;
 }
 .metric-strip > div {
-  padding: 10px;
+  min-width: 0;
+  padding: 9px;
   border: 1px solid var(--line-soft, #edf0f5);
   border-radius: 10px;
 }
-.metric-strip strong { display: block; margin-top: 4px; }
+.metric-strip > div > span {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.metric-strip strong {
+  display: block;
+  min-width: 0;
+  margin-top: 4px;
+  white-space: nowrap;
+}
 
 .wave-badge-pair {
   display: flex;
   gap: 6px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+@media (max-width: 1100px) {
+  .wave-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wave-card {
+    min-height: 0;
+  }
 }
 
 @media (max-width: 760px) {
