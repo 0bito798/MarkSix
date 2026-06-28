@@ -275,6 +275,39 @@ img {
   min-width: 0;
 }
 
+.card-head h3 {
+  min-width: 0;
+  margin: 0;
+  line-height: 1.22;
+}
+
+.prediction-card .card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.prediction-card .card-head h3 {
+  max-width: none;
+  font-size: 21px;
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
+.prediction-card .badge {
+  min-width: 56px;
+  padding: 5px 9px;
+  justify-content: center;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.prediction-card .kv {
+  line-height: 1.55;
+}
+
 .stat-card h3 {
   margin: 6px 0;
 }
@@ -938,15 +971,19 @@ tbody tr:hover td {
 .wave-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
-  gap: 10px;
+  gap: 8px;
+}
+
+.wave-prediction-card .wave-grid {
+  grid-template-columns: 1fr;
 }
 
 .wave-card {
-  display: grid;
-  gap: 10px;
+  display: flex;
+  align-items: center;
   min-width: 0;
-  min-height: 112px;
-  padding: 12px;
+  min-height: 56px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius, 12px);
   background: #fff;
@@ -965,6 +1002,7 @@ tbody tr:hover td {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   min-width: 0;
   flex-wrap: nowrap;
 }
@@ -978,42 +1016,11 @@ tbody tr:hover td {
   white-space: nowrap;
 }
 
-.wave-card-foot {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.wave-card-foot span {
-  color: var(--muted);
-  font-size: 12px;
-  white-space: nowrap;
-}
-.wave-card-foot strong {
-  white-space: nowrap;
-}
-
-.risk-meter {
-  height: 8px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--line-soft, #edf0f5);
-}
-.risk-meter span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-}
-.wave-card-red .risk-meter span { background: var(--red); }
-.wave-card-blue .risk-meter span { background: var(--blue); }
-.wave-card-green .risk-meter span { background: var(--green); }
-
 .metric-strip {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
-  gap: 10px;
-  margin-top: 10px;
+  gap: 8px;
+  margin-top: 8px;
 }
 .metric-strip > div {
   min-width: 0;

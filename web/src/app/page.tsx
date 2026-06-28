@@ -37,10 +37,9 @@ function waveCardClassName(wave: string): string {
   return "wave-card-green";
 }
 
-function WaveRiskBoard({ detail }: { detail: { predictedWavesJson: string; excludedWave: string; riskJson: string | null; confidence: number; betLevel: string; confidenceNote: string } | null }) {
+function WaveRiskBoard({ detail }: { detail: { predictedWavesJson: string; excludedWave: string; betLevel: string } | null }) {
   if (!detail) return null;
   const predictedWaves = parseWaveList(detail.predictedWavesJson);
-  const risk = JSON.parse(detail.riskJson ?? "{}");
 
   return (
     <section className="wave-panel">
@@ -48,7 +47,6 @@ function WaveRiskBoard({ detail }: { detail: { predictedWavesJson: string; exclu
         {["红波", "蓝波", "绿波"].map((wave) => {
           const recommended = predictedWaves.includes(wave);
           const excluded = detail.excludedWave === wave;
-          const riskVal = risk[wave] ?? 0;
           return (
             <article key={wave} className={`wave-card ${waveCardClassName(wave)} ${recommended ? "is-recommended" : ""} ${excluded ? "is-excluded" : ""}`}>
               <div className="wave-card-head">
@@ -58,13 +56,6 @@ function WaveRiskBoard({ detail }: { detail: { predictedWavesJson: string; exclu
                   {excluded ? "排除" : recommended ? "推荐" : "观察"}
                 </span>
               </div>
-              <div className="risk-meter">
-                <span style={{ width: `${Math.min(riskVal * 100, 100)}%` }} />
-              </div>
-              <div className="wave-card-foot">
-                <span>风险</span>
-                <strong>{riskVal >= 1 ? "100%" : `${(riskVal * 100).toFixed(1)}%`}</strong>
-              </div>
             </article>
           );
         })}
@@ -72,10 +63,8 @@ function WaveRiskBoard({ detail }: { detail: { predictedWavesJson: string; exclu
       <div className="metric-strip">
         <div><span>推荐</span><strong><WaveBadgeGroup waves={predictedWaves} size="sm" /></strong></div>
         <div><span>排除</span><strong><WaveBadge wave={detail.excludedWave} size="sm" /></strong></div>
-        <div><span>置信度</span><strong>{(detail.confidence * 100).toFixed(1)}%</strong></div>
-        <div><span>等级</span><strong>{detail.betLevel}</strong></div>
+        <div><span>模型档位</span><strong>{detail.betLevel}</strong></div>
       </div>
-      {detail.confidenceNote ? <p className="kv" style={{ marginTop: 10 }}>{detail.confidenceNote}</p> : null}
     </section>
   );
 }
@@ -227,7 +216,7 @@ export default async function HomePage() {
           return (
           <article
             key={run.id}
-            className="card"
+            className={`card prediction-card ${isWaveStrategy ? "wave-prediction-card" : ""}`}
           >
             <div className="card-head">
               <h3>{strategyMeta[run.strategy as keyof typeof strategyMeta]?.name ?? run.strategy}</h3>
