@@ -3,7 +3,7 @@ import { type Draw } from "@prisma/client";
 export const ALL_NUMBERS = Array.from({ length: 49 }, (_, index) => index + 1);
 export const ZODIAC_SEQUENCE = ["鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪"] as const;
 
-type ZodiacName = (typeof ZODIAC_SEQUENCE)[number];
+export type ZodiacName = (typeof ZODIAC_SEQUENCE)[number];
 type WaveColor = "红波" | "蓝波" | "绿波";
 
 const YEAR_ZODIAC_SEQUENCE: ZodiacName[] = ["猴", "鸡", "狗", "猪", "鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊"];

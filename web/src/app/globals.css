@@ -959,6 +959,42 @@ tbody tr:hover td {
   flex-wrap: wrap;
 }
 
+.zodiac-summary,
+.zodiac-token-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.zodiac-summary-label {
+  white-space: nowrap;
+}
+
+.zodiac-token {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.zodiac-token.is-excluded {
+  border-color: color-mix(in srgb, var(--red) 55%, var(--line));
+  color: var(--red);
+}
+
+.zodiac-token.is-actual {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
 .wave-panel {
   padding: 14px 0 0;
   width: 100%;

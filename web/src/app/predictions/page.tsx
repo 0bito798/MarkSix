@@ -5,6 +5,7 @@ import { scheduledStrategies, strategyMeta } from "@/lib/strategies";
 import { type StrategyId } from "@/lib/types";
 import { waveSummaryFromDetailOrNumbers } from "@/lib/wave-summary";
 import { WaveBadge, WaveBadgeGroup } from "@/components/wave-badge";
+import { ZodiacSelectionBadges } from "@/components/zodiac-selection";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -94,6 +95,7 @@ export default async function PredictionsPage({
         orderBy: { number: "asc" },
       },
       waveDetail: true,
+      zodiacDetail: true,
     },
     orderBy: { createdAt: "desc" },
     skip: (safePage - 1) * PAGE_SIZE,
@@ -161,6 +163,7 @@ export default async function PredictionsPage({
                 <tbody>
                   {predictionHistory.map((run) => {
                     const isWaveStrategy = run.strategy === "wave_special_v1";
+                    const isZodiacStrategy = Boolean(run.zodiacDetail);
 
                     return (
                       <tr key={run.id}>
@@ -171,6 +174,8 @@ export default async function PredictionsPage({
                         <td>
                           {isWaveStrategy ? (
                             <WavePredictionSummary detail={run.waveDetail} numbers={run.picks.map((pick) => pick.number)} />
+                          ) : isZodiacStrategy ? (
+                            <ZodiacSelectionBadges detail={run.zodiacDetail} />
                           ) : (
                             <div className="history-balls">
                               {run.picks.map((pick) => (

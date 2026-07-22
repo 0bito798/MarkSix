@@ -4,6 +4,7 @@ import { formatPredictionReason } from "@/lib/prediction-reason";
 import { strategyMeta } from "@/lib/strategies";
 import { waveSummaryFromDetailOrNumbers } from "@/lib/wave-summary";
 import { parseWaveList, WaveBadge, WaveBadgeGroup, waveTitle } from "@/components/wave-badge";
+import { ZodiacSelectionBadges } from "@/components/zodiac-selection";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -82,6 +83,10 @@ function WaveSummaryBoard({ predictedWaves, excludedWave }: { predictedWaves: st
 
 const featuredStrategyIds = [
   "zodiac_special_v1",
+  "zodiac_nine_v1",
+  "zodiac_six_v1",
+  "zodiac_kill_two_v1",
+  "zodiac_kill_one_v1",
   "hot_special_v1",
   "cold_special_v1",
   "knowledge_mix_v1",
@@ -107,7 +112,7 @@ export default async function HomePage() {
         status: "PENDING",
         issueNo: latestPendingIssue.issueNo,
       },
-      include: { picks: { orderBy: { rank: "asc" } }, waveDetail: true },
+      include: { picks: { orderBy: { rank: "asc" } }, waveDetail: true, zodiacDetail: true },
       orderBy: { createdAt: "asc" },
     })
     : [];
@@ -209,6 +214,7 @@ export default async function HomePage() {
       <div className="grid">
         {pendingRuns.map((run) => {
           const isWaveStrategy = run.strategy === "wave_special_v1";
+          const isZodiacStrategy = Boolean(run.zodiacDetail);
           const waveSummary = isWaveStrategy
             ? waveSummaryFromDetailOrNumbers(run.waveDetail, run.picks.map((pick) => pick.number))
             : null;
@@ -220,15 +226,18 @@ export default async function HomePage() {
           >
             <div className="card-head">
               <h3>{strategyMeta[run.strategy as keyof typeof strategyMeta]?.name ?? run.strategy}</h3>
-              <span className="badge">{isWaveStrategy ? "波色方案" : `${run.picks.length} 个候选`}</span>
+              <span className="badge">
+                {isWaveStrategy ? "\u6ce2\u8272\u65b9\u6848" : isZodiacStrategy ? "\u751f\u8096\u65b9\u6848" : `${run.picks.length} \u4e2a\u5019\u9009`}
+              </span>
             </div>
             <p className="kv">{strategyMeta[run.strategy as keyof typeof strategyMeta]?.description}</p>
             <p className="kv">目标期号: {run.issueNo}</p>
             {run.waveDetail ? <WaveRiskBoard detail={run.waveDetail} /> : null}
+            {run.zodiacDetail ? <ZodiacSelectionBadges detail={run.zodiacDetail} /> : null}
             {isWaveStrategy && !run.waveDetail && waveSummary ? (
               <WaveSummaryBoard predictedWaves={waveSummary.predictedWaves} excludedWave={waveSummary.excludedWave} />
             ) : null}
-            {!isWaveStrategy ? (
+            {!isWaveStrategy && !isZodiacStrategy ? (
               <>
                 <div className="numbers">
                   {run.picks.map((pick) => (

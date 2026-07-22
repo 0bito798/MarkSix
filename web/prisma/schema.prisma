@@ -39,6 +39,7 @@ model PredictionRun {
   picks           PredictionPick[]
   review          PredictionReview?
   waveDetail      WavePredictionDetail?
+  zodiacDetail    ZodiacPredictionDetail?
 
   @@index([issueNo])
   @@index([strategy])
@@ -66,6 +67,23 @@ model WavePredictionDetail {
   @@index([issueNo])
   @@index([excludedWave])
   @@index([betLevel])
+  @@index([hit])
+}
+
+model ZodiacPredictionDetail {
+  id           Int           @id @default(autoincrement())
+  runId        Int           @unique
+  issueNo      String
+  mode         String
+  zodiacsJson  String
+  actualZodiac String?
+  hit          Boolean?
+  createdAt    DateTime      @default(now())
+  reviewedAt   DateTime?
+  run          PredictionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([issueNo])
+  @@index([mode])
   @@index([hit])
 }
 

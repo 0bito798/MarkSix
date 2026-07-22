@@ -1,5 +1,5 @@
 import { PredictionStatus } from "@prisma/client";
-import { getWaveColor, macauIssueWhere, nextMacauIssueNo } from "@/lib/marksix";
+import { getWaveColor, getZodiacForNumber, inferYearFromIssue, macauIssueWhere, nextMacauIssueNo } from "@/lib/marksix";
 import { reviewPredictionRun } from "@/lib/prediction-review";
 import { prisma } from "@/lib/prisma";
 import { allStrategies, generateStrategyResult, predictWaveColor } from "@/lib/strategies";
@@ -92,6 +92,21 @@ export async function generatePredictionsForIssue(issueNo: string, strategyIds?:
       await prisma.wavePredictionDetail.deleteMany({ where: { runId: run.id } });
     }
 
+    if (result.zodiacSelection) {
+      const common = {
+        issueNo,
+        mode: result.zodiacSelection.mode,
+        zodiacsJson: JSON.stringify(result.zodiacSelection.zodiacs),
+      };
+      await prisma.zodiacPredictionDetail.upsert({
+        where: { runId: run.id },
+        update: { ...common, actualZodiac: null, hit: null, reviewedAt: null },
+        create: { runId: run.id, ...common },
+      });
+    } else {
+      await prisma.zodiacPredictionDetail.deleteMany({ where: { runId: run.id } });
+    }
+
     createdRuns.push(run.id);
   }
 
@@ -122,9 +137,13 @@ export async function reviewIssue(issueNo: string) {
 
   const winningSpecial = draw.specialNumber;
   const actualWave = getWaveColor(winningSpecial);
+  const actualZodiac = getZodiacForNumber(
+    winningSpecial,
+    inferYearFromIssue(draw.issueNo, draw.drawDate.getUTCFullYear()),
+  );
   const pendingRuns = await prisma.predictionRun.findMany({
     where: { issueNo, status: PredictionStatus.PENDING },
-    include: { picks: true, waveDetail: true },
+    include: { picks: true, waveDetail: true, zodiacDetail: true },
   });
 
   for (const run of pendingRuns) {
@@ -133,7 +152,9 @@ export async function reviewIssue(issueNo: string) {
       picks: run.picks.map((pick) => pick.number),
       winningSpecial,
       actualWave,
+      actualZodiac,
       waveDetail: run.waveDetail,
+      zodiacDetail: run.zodiacDetail,
     });
 
     await prisma.predictionRun.update({
@@ -167,6 +188,17 @@ export async function reviewIssue(issueNo: string) {
         where: { runId: run.id },
         data: {
           actualWave,
+          hit: outcome.hit,
+          reviewedAt: new Date(),
+        },
+      });
+    }
+
+    if (run.zodiacDetail) {
+      await prisma.zodiacPredictionDetail.updateMany({
+        where: { runId: run.id },
+        data: {
+          actualZodiac,
           hit: outcome.hit,
           reviewedAt: new Date(),
         },

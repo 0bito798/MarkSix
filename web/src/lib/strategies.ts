@@ -10,7 +10,7 @@ import {
   getZoneIndex,
   inferYearFromIssue,
 } from "@/lib/marksix";
-import { type StrategyId, type StrategyResult } from "@/lib/types";
+import { type StrategyId, type StrategyResult, type ZodiacSelection } from "@/lib/types";
 import { predictWaveColorWithPythonParity } from "@/lib/wave-python-parity";
 
 type NumberMap = Map<number, number>;
@@ -37,6 +37,24 @@ type MarkovTransitionProfile = {
 };
 
 const RECENT_SPECIAL_PENALTY = new Set([1, 2]);
+const PURE_ZODIAC_STRATEGIES = new Set([
+  "zodiac_nine_v1",
+  "zodiac_six_v1",
+  "zodiac_kill_two_v1",
+  "zodiac_kill_one_v1",
+]);
+
+type ZodiacScore = {
+  zodiac: (typeof ZODIAC_SEQUENCE)[number];
+  score: number;
+};
+
+export function isPureZodiacStrategy(
+  strategy: string,
+): strategy is "zodiac_nine_v1" | "zodiac_six_v1" | "zodiac_kill_two_v1" | "zodiac_kill_one_v1" {
+  return PURE_ZODIAC_STRATEGIES.has(strategy);
+}
+
 function createNumberMap(defaultValue = 0): NumberMap {
   return new Map(ALL_NUMBERS.map((number) => [number, defaultValue]));
 }
@@ -437,6 +455,59 @@ function zodiacTransitionMap(draws: Draw[], year: number): StringMap {
   return normalizeStringMap(scores);
 }
 
+function rankZodiacScoreMaps(zodiacHot: StringMap, zodiacCold: StringMap, zodiacTransition: StringMap): ZodiacScore[] {
+  return [...ZODIAC_SEQUENCE]
+    .map((zodiac) => ({
+      zodiac,
+      score:
+        (zodiacHot.get(zodiac) ?? 0) * 0.45 +
+        (zodiacCold.get(zodiac) ?? 0) * 0.25 +
+        (zodiacTransition.get(zodiac) ?? 0) * 0.3,
+    }))
+    .sort((a, b) => b.score - a.score || ZODIAC_SEQUENCE.indexOf(a.zodiac) - ZODIAC_SEQUENCE.indexOf(b.zodiac));
+}
+
+export function rankZodiacScores(recentDraws: Draw[], issueNo: string): ZodiacScore[] {
+  const targetYear = inferYearFromIssue(issueNo, recentDraws[0]?.drawDate.getUTCFullYear());
+  const longWindow = recentDraws.slice(0, Math.min(recentDraws.length, 180));
+  const mediumWindow = recentDraws.slice(0, Math.min(recentDraws.length, 72));
+  return rankZodiacScoreMaps(
+    zodiacFrequencyMap(longWindow, targetYear),
+    zodiacOmissionMap(longWindow, targetYear),
+    zodiacTransitionMap(mediumWindow, targetYear),
+  );
+}
+
+function zodiacSelectionForStrategy(strategy: StrategyId, rankedZodiacs: ZodiacScore[]): ZodiacSelection | undefined {
+  const config =
+    strategy === "zodiac_nine_v1"
+      ? { mode: "RECOMMEND" as const, count: 9 }
+      : strategy === "zodiac_six_v1"
+        ? { mode: "RECOMMEND" as const, count: 6 }
+        : strategy === "zodiac_kill_two_v1"
+          ? { mode: "EXCLUDE" as const, count: 2 }
+          : strategy === "zodiac_kill_one_v1"
+            ? { mode: "EXCLUDE" as const, count: 1 }
+            : undefined;
+
+  if (!config) {
+    return undefined;
+  }
+
+  const selected =
+    config.mode === "RECOMMEND"
+      ? rankedZodiacs.slice(0, config.count)
+      : rankedZodiacs.slice(-config.count).reverse();
+
+  return {
+    mode: config.mode,
+    zodiacs: selected.map((item) => ({
+      ...item,
+      rank: rankedZodiacs.indexOf(item) + 1,
+    })),
+  };
+}
+
 function colorGapMap(draws: Draw[]): NumberMap {
   const counts = new Map<string, number>([
     ["红波", 0],
@@ -523,6 +594,26 @@ export const strategyMeta: Record<StrategyId, { name: string; description: strin
     description: "按生肖热度、遗漏和转移节奏筛选下一期特别号生肖池",
     limit: 30,
   },
+  zodiac_nine_v1: {
+    name: "\u4e5d\u8096",
+    description: "\u6309\u751f\u8096\u70ed\u5ea6\u3001\u9057\u6f0f\u548c\u8f6c\u79fb\u8282\u594f\u63a8\u8350\u524d\u4e5d\u8096",
+    limit: 9,
+  },
+  zodiac_six_v1: {
+    name: "\u516d\u8096",
+    description: "\u6309\u751f\u8096\u70ed\u5ea6\u3001\u9057\u6f0f\u548c\u8f6c\u79fb\u8282\u594f\u63a8\u8350\u524d\u516d\u8096",
+    limit: 6,
+  },
+  zodiac_kill_two_v1: {
+    name: "\u6740\u4e8c\u8096",
+    description: "\u6392\u9664\u751f\u8096\u7efc\u5408\u5206\u6700\u4f4e\u7684\u4e24\u4e2a\u8096",
+    limit: 2,
+  },
+  zodiac_kill_one_v1: {
+    name: "\u6740\u4e00\u8096",
+    description: "\u6392\u9664\u751f\u8096\u7efc\u5408\u5206\u6700\u4f4e\u7684\u4e00\u4e2a\u8096",
+    limit: 1,
+  },
   hot_special_v1: {
     name: "热门号码方案",
     description: "优先选择近期特别号高频、主号带动明显的候选号码",
@@ -567,6 +658,7 @@ export function generateStrategyResult(strategy: StrategyId, recentDraws: Draw[]
   const zodiacHot = zodiacFrequencyMap(longWindow, targetYear);
   const zodiacCold = zodiacOmissionMap(longWindow, targetYear);
   const zodiacTransition = zodiacTransitionMap(mediumWindow, targetYear);
+  const rankedZodiacs = rankZodiacScoreMaps(zodiacHot, zodiacCold, zodiacTransition);
 
   const hotScores = createNumberMap();
   const coldScores = createNumberMap();
@@ -620,18 +712,18 @@ export function generateStrategyResult(strategy: StrategyId, recentDraws: Draw[]
     };
   }
 
-  if (strategy === "zodiac_special_v1") {
-    const zodiacScores = [...ZODIAC_SEQUENCE]
-      .map((zodiac) => ({
-        zodiac,
-        score:
-          (zodiacHot.get(zodiac) ?? 0) * 0.45 +
-          (zodiacCold.get(zodiac) ?? 0) * 0.25 +
-          (zodiacTransition.get(zodiac) ?? 0) * 0.3,
-      }))
-      .sort((a, b) => b.score - a.score);
+  const zodiacSelection = zodiacSelectionForStrategy(strategy, rankedZodiacs);
+  if (zodiacSelection) {
+    return {
+      strategy,
+      strategyVersion: strategy,
+      zodiacSelection,
+      picks: [],
+    };
+  }
 
-    const pickedZodiacs = zodiacScores.slice(0, 6);
+  if (strategy === "zodiac_special_v1") {
+    const pickedZodiacs = rankedZodiacs.slice(0, 6);
     const zodiacScoreMap = new Map(pickedZodiacs.map((item) => [item.zodiac, item.score]));
     const zodiacPool = pickedZodiacs.flatMap(({ zodiac }) =>
       getNumbersForZodiac(zodiac, targetYear).map((number) => {
@@ -746,7 +838,17 @@ export function generateStrategyResult(strategy: StrategyId, recentDraws: Draw[]
 }
 
 export function allStrategies(): StrategyId[] {
-  return ["zodiac_special_v1", "hot_special_v1", "cold_special_v1", "knowledge_mix_v1", "wave_special_v1"];
+  return [
+    "zodiac_special_v1",
+    "zodiac_nine_v1",
+    "zodiac_six_v1",
+    "zodiac_kill_two_v1",
+    "zodiac_kill_one_v1",
+    "hot_special_v1",
+    "cold_special_v1",
+    "knowledge_mix_v1",
+    "wave_special_v1",
+  ];
 }
 
 export function scheduledStrategies(): StrategyId[] {
