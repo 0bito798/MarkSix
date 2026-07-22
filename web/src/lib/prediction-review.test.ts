@@ -47,3 +47,31 @@ test("legacy wave strategy review infers wave detail from old wave-color picks",
   assert.equal(outcome.hitRate, 0);
   assert.deepEqual(outcome.matchedNumbers, []);
 });
+
+test("zodiac recommendation and exclusion strategies use opposite hit rules", () => {
+  const cases = [
+    { strategy: "zodiac_nine_v1", mode: "RECOMMEND", actualZodiac: "\u9a6c", expectedHit: true },
+    { strategy: "zodiac_six_v1", mode: "RECOMMEND", actualZodiac: "\u9f20", expectedHit: false },
+    { strategy: "zodiac_kill_two_v1", mode: "EXCLUDE", actualZodiac: "\u9f20", expectedHit: true },
+    { strategy: "zodiac_kill_one_v1", mode: "EXCLUDE", actualZodiac: "\u9a6c", expectedHit: false },
+  ] as const;
+
+  for (const item of cases) {
+    const outcome = reviewPredictionRun({
+      strategy: item.strategy,
+      picks: [],
+      winningSpecial: 1,
+      actualWave: "\u7ea2\u6ce2",
+      actualZodiac: item.actualZodiac,
+      zodiacDetail: {
+        mode: item.mode,
+        zodiacsJson: JSON.stringify([{ zodiac: "\u9a6c", rank: 1, score: 0.9 }]),
+      },
+    });
+
+    assert.equal(outcome.hit, item.expectedHit);
+    assert.equal(outcome.hitCount, item.expectedHit ? 1 : 0);
+    assert.equal(outcome.hitRate, item.expectedHit ? 1 : 0);
+    assert.deepEqual(outcome.matchedNumbers, []);
+  }
+});
