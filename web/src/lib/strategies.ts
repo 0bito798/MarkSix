@@ -584,6 +584,19 @@ function pickTopCandidates(
     }));
 }
 
+function rankedCandidateSupport(scores: NumberMap, count: number): NumberMap {
+  const support = createNumberMap();
+  const ranked = [...scores.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0] - b[0])
+    .slice(0, count);
+
+  for (let index = 0; index < ranked.length; index += 1) {
+    support.set(ranked[index][0], (ranked.length - index) / ranked.length);
+  }
+
+  return support;
+}
+
 export function predictWaveColor(draws: Draw[], _issueNo: string): WavePrediction {
   return predictWaveColorWithPythonParity(draws);
 }
@@ -633,6 +646,11 @@ export const strategyMeta: Record<StrategyId, { name: string; description: strin
     name: "综合方案",
     description: "融合热度、冷门、生肖、波色、分区和主号联动的综合方案",
     limit: 20,
+  },
+  kill_ten_special_v1: {
+    name: "杀十码",
+    description: "二次强化热门、冷门和综合排名，排除保护分最低的十个号码",
+    limit: 10,
   },
   wave_special_v1: {
     name: "波色排除方案",
@@ -703,6 +721,35 @@ export function generateStrategyResult(strategy: StrategyId, recentDraws: Draw[]
   const adjustedHot = applyRecentPenalty(recentDraws, hotScores);
   const adjustedCold = applyRecentPenalty(recentDraws, coldScores);
   const adjustedMix = applyRecentPenalty(recentDraws, mixScores);
+
+  if (strategy === "kill_ten_special_v1") {
+    const hotSupport = rankedCandidateSupport(adjustedHot, strategyMeta.hot_special_v1.limit);
+    const coldSupport = rankedCandidateSupport(adjustedCold, strategyMeta.cold_special_v1.limit);
+    const knowledgeSupport = rankedCandidateSupport(adjustedMix, strategyMeta.knowledge_mix_v1.limit);
+    const killScores = new Map(
+      ALL_NUMBERS.map((number) => {
+        const protection =
+          (hotSupport.get(number) ?? 0) +
+          (coldSupport.get(number) ?? 0) +
+          2 * (knowledgeSupport.get(number) ?? 0);
+        return [number, 1 - protection / 4];
+      }),
+    );
+
+    return {
+      strategy,
+      strategyVersion: strategy,
+      selectionMode: "EXCLUDE",
+      picks: pickTopCandidates(killScores, strategyMeta[strategy].limit, (number, score) =>
+        [
+          `杀码分 ${score.toFixed(2)}`,
+          `综合保护 ${(knowledgeSupport.get(number) ?? 0).toFixed(2)}`,
+          `热门保护 ${(hotSupport.get(number) ?? 0).toFixed(2)}`,
+          `冷门保护 ${(coldSupport.get(number) ?? 0).toFixed(2)}`,
+        ].join(" · "),
+      ),
+    };
+  }
 
   if (strategy === "wave_special_v1") {
     return {
@@ -847,6 +894,7 @@ export function allStrategies(): StrategyId[] {
     "hot_special_v1",
     "cold_special_v1",
     "knowledge_mix_v1",
+    "kill_ten_special_v1",
     "wave_special_v1",
   ];
 }

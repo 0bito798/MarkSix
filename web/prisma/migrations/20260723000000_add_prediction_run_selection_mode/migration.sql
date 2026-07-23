@@ -1,0 +1,2 @@
+ALTER TABLE "PredictionRun"
+ADD COLUMN "selectionMode" TEXT NOT NULL DEFAULT 'RECOMMEND';

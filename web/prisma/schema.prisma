@@ -31,6 +31,7 @@ model PredictionRun {
   issueNo         String
   strategy        String
   strategyVersion String
+  selectionMode   String           @default("RECOMMEND")
   status          PredictionStatus @default(PENDING)
   hitCount        Int?
   hitRate         Float?

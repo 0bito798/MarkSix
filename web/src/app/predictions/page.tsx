@@ -157,13 +157,14 @@ export default async function PredictionsPage({
                     <th>策略</th>
                     <th>状态</th>
                     <th>生成时间</th>
-                    <th>候选号码</th>
+                    <th>方案内容</th>
                   </tr>
                 </thead>
                 <tbody>
                   {predictionHistory.map((run) => {
                     const isWaveStrategy = run.strategy === "wave_special_v1";
                     const isZodiacStrategy = Boolean(run.zodiacDetail);
+                    const isNumberExclusion = run.selectionMode === "EXCLUDE";
 
                     return (
                       <tr key={run.id}>
@@ -177,12 +178,15 @@ export default async function PredictionsPage({
                           ) : isZodiacStrategy ? (
                             <ZodiacSelectionBadges detail={run.zodiacDetail} />
                           ) : (
-                            <div className="history-balls">
-                              {run.picks.map((pick) => (
-                                <span key={pick.id} className={`history-ball ${waveClassName(pick.number)}`} title={formatPredictionReason(pick.reason)}>
-                                  {formatNumber(pick.number)}
-                                </span>
-                              ))}
+                            <div className="number-selection">
+                              {isNumberExclusion ? <span className="selection-mode-label">排除码</span> : null}
+                              <div className="history-balls">
+                                {run.picks.map((pick) => (
+                                  <span key={pick.id} className={`history-ball ${waveClassName(pick.number)}`} title={formatPredictionReason(pick.reason)}>
+                                    {formatNumber(pick.number)}
+                                  </span>
+                                ))}
+                              </div>
                             </div>
                           )}
                         </td>

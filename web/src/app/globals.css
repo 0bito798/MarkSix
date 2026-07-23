@@ -308,6 +308,38 @@ img {
   line-height: 1.55;
 }
 
+.number-exclusion-card {
+  border-color: rgba(185, 28, 28, 0.28);
+}
+
+.selection-mode-label {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin: 2px 0 8px;
+  color: #991b1b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.number-selection {
+  display: grid;
+  gap: 6px;
+}
+
+.number-selection .selection-mode-label {
+  margin: 0;
+}
+
+.kill-ten-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .stat-card h3 {
   margin: 6px 0;
 }

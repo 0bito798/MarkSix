@@ -21,6 +21,7 @@
     "bootstrap:history": "tsx scripts/bootstrap-history.ts",
     "backfill:history": "tsx scripts/backfill-history.ts",
     "audit:history": "tsx scripts/audit-history.ts",
+    "backtest:kill-ten": "tsx scripts/backtest-kill-ten.ts",
     "predict:next": "tsx scripts/generate-prediction.ts"
   },
   "dependencies": {

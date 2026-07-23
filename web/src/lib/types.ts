@@ -2,7 +2,8 @@ export type WaveColor = "红波" | "蓝波" | "绿波";
 
 import { type ZodiacName } from "@/lib/marksix";
 
-export type ZodiacSelectionMode = "RECOMMEND" | "EXCLUDE";
+export type SelectionMode = "RECOMMEND" | "EXCLUDE";
+export type ZodiacSelectionMode = SelectionMode;
 
 export type ZodiacSelection = {
   mode: ZodiacSelectionMode;
@@ -31,11 +32,13 @@ export type StrategyId =
   | "cold_special_v1"
   | "markov_special_v1"
   | "knowledge_mix_v1"
+  | "kill_ten_special_v1"
   | "wave_special_v1";
 
 export type StrategyResult = {
   strategy: StrategyId;
   strategyVersion: string;
+  selectionMode?: SelectionMode;
   zodiacSelection?: ZodiacSelection;
   picks: Array<{
     number: number;

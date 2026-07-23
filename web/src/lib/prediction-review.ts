@@ -11,6 +11,7 @@ export type ReviewOutcome = {
 
 export type PredictionRunReviewInput = {
   strategy: string;
+  selectionMode?: string | null;
   picks: number[];
   winningSpecial: number;
   actualWave: WaveColor | string;
@@ -39,6 +40,16 @@ export function reviewNumberPicks(picks: number[], winningSpecial: number): Revi
     hit: hitCount > 0,
     hitCount,
     hitRate: picks.length === 0 ? 0 : Number((hitCount / picks.length).toFixed(4)),
+  };
+}
+
+export function reviewNumberExclusion(picks: number[], winningSpecial: number): ReviewOutcome {
+  const excluded = picks.includes(winningSpecial);
+  return {
+    matchedNumbers: excluded ? [winningSpecial] : [],
+    hit: !excluded,
+    hitCount: excluded ? 0 : 1,
+    hitRate: excluded ? 0 : 1,
   };
 }
 
@@ -95,5 +106,7 @@ export function reviewPredictionRun(input: PredictionRunReviewInput): ReviewOutc
     return reviewZodiacSelection(input.zodiacDetail.mode, input.zodiacDetail.zodiacsJson, input.actualZodiac);
   }
 
-  return reviewNumberPicks(input.picks, input.winningSpecial);
+  return input.selectionMode === "EXCLUDE"
+    ? reviewNumberExclusion(input.picks, input.winningSpecial)
+    : reviewNumberPicks(input.picks, input.winningSpecial);
 }

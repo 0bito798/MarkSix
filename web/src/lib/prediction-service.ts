@@ -44,6 +44,7 @@ export async function generatePredictionsForIssue(issueNo: string, strategyIds?:
       },
       update: {
         createdAt: new Date(),
+        selectionMode: result.selectionMode ?? "RECOMMEND",
         status: PredictionStatus.PENDING,
         hitCount: null,
         hitRate: null,
@@ -53,6 +54,7 @@ export async function generatePredictionsForIssue(issueNo: string, strategyIds?:
         issueNo,
         strategy: result.strategy,
         strategyVersion: result.strategyVersion,
+        selectionMode: result.selectionMode ?? "RECOMMEND",
       },
       select: { id: true },
     });
@@ -149,6 +151,7 @@ export async function reviewIssue(issueNo: string) {
   for (const run of pendingRuns) {
     const outcome = reviewPredictionRun({
       strategy: run.strategy,
+      selectionMode: run.selectionMode,
       picks: run.picks.map((pick) => pick.number),
       winningSpecial,
       actualWave,

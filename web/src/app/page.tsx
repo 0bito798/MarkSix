@@ -90,6 +90,7 @@ const featuredStrategyIds = [
   "hot_special_v1",
   "cold_special_v1",
   "knowledge_mix_v1",
+  "kill_ten_special_v1",
   "wave_special_v1",
   "markov_special_v1",
 ] as const;
@@ -215,6 +216,7 @@ export default async function HomePage() {
         {pendingRuns.map((run) => {
           const isWaveStrategy = run.strategy === "wave_special_v1";
           const isZodiacStrategy = Boolean(run.zodiacDetail);
+          const isNumberExclusion = run.selectionMode === "EXCLUDE";
           const waveSummary = isWaveStrategy
             ? waveSummaryFromDetailOrNumbers(run.waveDetail, run.picks.map((pick) => pick.number))
             : null;
@@ -222,12 +224,18 @@ export default async function HomePage() {
           return (
           <article
             key={run.id}
-            className={`card prediction-card ${isWaveStrategy ? "wave-prediction-card" : ""}`}
+            className={`card prediction-card ${isWaveStrategy ? "wave-prediction-card" : ""} ${isNumberExclusion ? "number-exclusion-card" : ""}`}
           >
             <div className="card-head">
               <h3>{strategyMeta[run.strategy as keyof typeof strategyMeta]?.name ?? run.strategy}</h3>
               <span className="badge">
-                {isWaveStrategy ? "\u6ce2\u8272\u65b9\u6848" : isZodiacStrategy ? "\u751f\u8096\u65b9\u6848" : `${run.picks.length} \u4e2a\u5019\u9009`}
+                {isWaveStrategy
+                  ? "\u6ce2\u8272\u65b9\u6848"
+                  : isZodiacStrategy
+                    ? "\u751f\u8096\u65b9\u6848"
+                    : isNumberExclusion
+                      ? `${run.picks.length} \u4e2a\u6392\u9664\u7801`
+                      : `${run.picks.length} \u4e2a\u5019\u9009`}
               </span>
             </div>
             <p className="kv">{strategyMeta[run.strategy as keyof typeof strategyMeta]?.description}</p>
@@ -239,6 +247,7 @@ export default async function HomePage() {
             ) : null}
             {!isWaveStrategy && !isZodiacStrategy ? (
               <>
+                {isNumberExclusion ? <p className="selection-mode-label">排除号码</p> : null}
                 <div className="numbers">
                   {run.picks.map((pick) => (
                     <span key={pick.id} className={`ball ${waveClassName(pick.number)}`} title={formatPredictionReason(pick.reason)}>
