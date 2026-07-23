@@ -75,3 +75,55 @@ test("zodiac recommendation and exclusion strategies use opposite hit rules", ()
     assert.deepEqual(outcome.matchedNumbers, []);
   }
 });
+
+test("number exclusion succeeds when the winning special is outside the excluded picks", () => {
+  const outcome = reviewPredictionRun({
+    strategy: "kill_ten_special_v1",
+    selectionMode: "EXCLUDE",
+    picks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    winningSpecial: 49,
+    actualWave: "\u7ea2\u6ce2",
+  });
+
+  assert.equal(outcome.hit, true);
+  assert.equal(outcome.hitCount, 1);
+  assert.equal(outcome.hitRate, 1);
+  assert.deepEqual(outcome.matchedNumbers, []);
+});
+
+test("number exclusion misses when the winning special is one of the excluded picks", () => {
+  const outcome = reviewPredictionRun({
+    strategy: "kill_ten_special_v1",
+    selectionMode: "EXCLUDE",
+    picks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    winningSpecial: 7,
+    actualWave: "\u7ea2\u6ce2",
+  });
+
+  assert.equal(outcome.hit, false);
+  assert.equal(outcome.hitCount, 0);
+  assert.equal(outcome.hitRate, 0);
+  assert.deepEqual(outcome.matchedNumbers, [7]);
+});
+
+test("legacy number reviews default to recommendation semantics when selection mode is absent", () => {
+  const legacy = reviewPredictionRun({
+    strategy: "hot_special_v1",
+    picks: [7, 12, 31],
+    winningSpecial: 7,
+    actualWave: "\u7ea2\u6ce2",
+  });
+  const explicit = reviewPredictionRun({
+    strategy: "hot_special_v1",
+    selectionMode: "RECOMMEND",
+    picks: [7, 12, 31],
+    winningSpecial: 7,
+    actualWave: "\u7ea2\u6ce2",
+  });
+
+  assert.deepEqual(legacy, explicit);
+  assert.equal(legacy.hit, true);
+  assert.equal(legacy.hitCount, 1);
+  assert.equal(legacy.hitRate, Number((1 / 3).toFixed(4)));
+  assert.deepEqual(legacy.matchedNumbers, [7]);
+});
