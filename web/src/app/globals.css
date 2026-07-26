@@ -332,10 +332,11 @@ img {
 }
 
 .kill-ten-inline {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 6px;
+  margin-left: 8px;
+  vertical-align: middle;
   font-size: 12px;
   line-height: 1.45;
 }
@@ -1010,7 +1011,7 @@ tbody tr:hover td {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 50%;
   background: var(--surface);
   color: var(--fg);
   font-size: 13px;

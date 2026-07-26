@@ -1,5 +1,6 @@
 ﻿import { prisma } from "@/lib/prisma";
 import { describeSpecialNumber, getWaveColor, getZodiacForNumber, inferYearFromIssue, macauIssueWhere } from "@/lib/marksix";
+import { formatExclusionReviewResult, orderPicksByScoreDesc } from "@/lib/review-display";
 import { scheduledStrategies, strategyMeta } from "@/lib/strategies";
 import { type StrategyId } from "@/lib/types";
 import { waveSummaryFromDetailOrNumbers } from "@/lib/wave-summary";
@@ -77,34 +78,45 @@ function WaveReviewResult({ hit, actualWave }: { hit: boolean; actualWave: strin
 
 function ZodiacReviewResult({
   detail,
+  actualNumber,
   actualZodiac,
   hit,
 }: {
   detail: { mode: string; zodiacsJson: string };
+  actualNumber: number;
   actualZodiac: string;
   hit: boolean;
 }) {
-  const selected = parseZodiacSelection(detail.zodiacsJson).some((item) => item.zodiac === actualZodiac);
-  const relation =
-    detail.mode === "EXCLUDE"
-      ? selected
-        ? "\u843d\u5165\u6740\u8096"
-        : "\u672a\u843d\u5165\u6740\u8096"
-      : selected
-        ? "\u5728\u63a8\u8350\u8096\u5185"
-        : "\u4e0d\u5728\u63a8\u8350\u8096\u5185";
+  const zodiacs = parseZodiacSelection(detail.zodiacsJson);
+  const selected = zodiacs.some((item) => item.zodiac === actualZodiac);
+
+  if (detail.mode === "EXCLUDE") {
+    const result = formatExclusionReviewResult({
+      hit,
+      actualNumber,
+      actualZodiac,
+      exclusionLabel: zodiacs.length === 1 ? "杀一肖" : "杀二肖",
+    });
+
+    return (
+      <span className="wave-result-inline">
+        <span className={`status-pill small ${hit ? "success" : "danger"}`}>{result.status}</span>
+        <span>{result.detail}</span>
+      </span>
+    );
+  }
+
+  const relation = selected ? "\u5728\u63a8\u8350\u8096\u5185" : "\u4e0d\u5728\u63a8\u8350\u8096\u5185";
 
   return <span className="wave-result-inline">{hit ? "\u547d\u4e2d" : "\u672a\u4e2d"} · {actualZodiac}{relation}</span>;
 }
 
 function NumberExclusionReviewResult({ hit, actualNumber }: { hit: boolean; actualNumber: number }) {
-  const actual = String(actualNumber).padStart(2, "0");
+  const result = formatExclusionReviewResult({ hit, actualNumber, exclusionLabel: "10码" });
   return (
     <span className="wave-result-inline">
-      <span className={`status-pill small ${hit ? "success" : "danger"}`}>
-        {hit ? "杀码成功" : "误杀特码"}
-      </span>
-      <span>{hit ? `特码 ${actual} 未落入10码` : `特码 ${actual} 落入10码`}</span>
+      <span className={`status-pill small ${hit ? "success" : "danger"}`}>{result.status}</span>
+      <span>{result.detail}</span>
     </span>
   );
 }
@@ -273,6 +285,9 @@ export default async function ReviewPage({
                     const isWaveStrategy = review.run.strategy === "wave_special_v1";
                     const isZodiacStrategy = Boolean(review.run.zodiacDetail);
                     const isNumberExclusion = review.run.selectionMode === "EXCLUDE";
+                    const isZodiacExclusion = review.run.zodiacDetail?.mode === "EXCLUDE";
+                    const isExclusionStrategy = isNumberExclusion || isZodiacExclusion;
+                    const displayPicks = isNumberExclusion ? orderPicksByScoreDesc(review.run.picks) : review.run.picks;
                     const actualWave = getWaveColor(review.draw.specialNumber);
                     const actualZodiac = getZodiacForNumber(review.draw.specialNumber, year);
 
@@ -285,18 +300,23 @@ export default async function ReviewPage({
                           {isWaveStrategy ? <WaveReviewSummary detail={review.run.waveDetail} numbers={review.run.picks.map((pick) => pick.number)} actualWave={actualWave} /> : null}
                           {isZodiacStrategy ? <ZodiacSelectionBadges detail={review.run.zodiacDetail} actualZodiac={actualZodiac} /> : null}
                           {isNumberExclusion ? (
-                            <div className="kill-ten-inline">
+                            <span className="kill-ten-inline">
                               <span className="kv">排除</span>
-                              <span>{review.run.picks.map((pick) => String(pick.number).padStart(2, "0")).sort().join(" ")}</span>
-                            </div>
+                              <span>{displayPicks.map((pick) => String(pick.number).padStart(2, "0")).join(" ")}</span>
+                            </span>
                           ) : null}
                         </td>
-                        <td>{isNumberExclusion ? (review.hitCount > 0 ? "杀码成功" : "误杀特码") : review.hitCount > 0 ? "命中" : "未中"}</td>
+                        <td>{isExclusionStrategy ? (review.hitCount > 0 ? "杀码成功" : "误杀特码") : review.hitCount > 0 ? "命中" : "未中"}</td>
                         <td>
                           {isWaveStrategy ? (
                             <WaveReviewResult hit={review.hitCount > 0} actualWave={actualWave} />
                           ) : isZodiacStrategy && review.run.zodiacDetail ? (
-                            <ZodiacReviewResult detail={review.run.zodiacDetail} actualZodiac={actualZodiac} hit={review.hitCount > 0} />
+                            <ZodiacReviewResult
+                              detail={review.run.zodiacDetail}
+                              actualNumber={review.draw.specialNumber}
+                              actualZodiac={actualZodiac}
+                              hit={review.hitCount > 0}
+                            />
                           ) : isNumberExclusion ? (
                             <NumberExclusionReviewResult hit={review.hitCount > 0} actualNumber={review.draw.specialNumber} />
                           ) : matched.length > 0 ? (

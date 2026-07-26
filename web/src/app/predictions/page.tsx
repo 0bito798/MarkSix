@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { formatNumber, getWaveColor, macauIssueWhere } from "@/lib/marksix";
 import { formatPredictionReason } from "@/lib/prediction-reason";
+import { orderPicksByScoreDesc } from "@/lib/review-display";
 import { scheduledStrategies, strategyMeta } from "@/lib/strategies";
 import { type StrategyId } from "@/lib/types";
 import { waveSummaryFromDetailOrNumbers } from "@/lib/wave-summary";
@@ -91,9 +92,7 @@ export default async function PredictionsPage({
   const predictionHistory = await prisma.predictionRun.findMany({
     where: predictionWhere,
     include: {
-      picks: {
-        orderBy: { number: "asc" },
-      },
+      picks: true,
       waveDetail: true,
       zodiacDetail: true,
     },
@@ -165,6 +164,7 @@ export default async function PredictionsPage({
                     const isWaveStrategy = run.strategy === "wave_special_v1";
                     const isZodiacStrategy = Boolean(run.zodiacDetail);
                     const isNumberExclusion = run.selectionMode === "EXCLUDE";
+                    const displayPicks = isNumberExclusion ? orderPicksByScoreDesc(run.picks) : run.picks;
 
                     return (
                       <tr key={run.id}>
@@ -181,7 +181,7 @@ export default async function PredictionsPage({
                             <div className="number-selection">
                               {isNumberExclusion ? <span className="selection-mode-label">排除码</span> : null}
                               <div className="history-balls">
-                                {run.picks.map((pick) => (
+                                {displayPicks.map((pick) => (
                                   <span key={pick.id} className={`history-ball ${waveClassName(pick.number)}`} title={formatPredictionReason(pick.reason)}>
                                     {formatNumber(pick.number)}
                                   </span>
