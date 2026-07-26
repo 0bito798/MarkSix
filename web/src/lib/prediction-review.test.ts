@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatExclusionReviewResult, orderPicksByScoreDesc } from "@/lib/review-display";
+import {
+  formatExclusionReviewResult,
+  formatZodiacExclusionReviewResult,
+  orderPicksByScoreDesc,
+} from "@/lib/review-display";
 import { reviewPredictionRun, reviewWaveExclusion } from "@/lib/prediction-review";
 
 test("wave exclusion review misses when excluded wave equals the actual wave", () => {
@@ -129,18 +133,18 @@ test("legacy number reviews default to recommendation semantics when selection m
   assert.deepEqual(legacy.matchedNumbers, [7]);
 });
 
-test("exclusion display uses kill-ten success and failure language for number and zodiac kills", () => {
+test("number and zodiac exclusions keep their own review language", () => {
   assert.deepEqual(
     formatExclusionReviewResult({ hit: true, actualNumber: 7, exclusionLabel: "10码" }),
     { status: "杀码成功", detail: "特码 07 未落入10码" },
   );
   assert.deepEqual(
-    formatExclusionReviewResult({ hit: false, actualNumber: 12, actualZodiac: "马", exclusionLabel: "杀二肖" }),
-    { status: "误杀特码", detail: "特码 12（马）落入杀二肖" },
+    formatZodiacExclusionReviewResult({ hit: false, actualZodiac: "马", exclusionLabel: "杀二肖" }),
+    { status: "误杀生肖", detail: "实际生肖：马，落入杀二肖" },
   );
   assert.deepEqual(
-    formatExclusionReviewResult({ hit: true, actualNumber: 49, actualZodiac: "蛇", exclusionLabel: "杀一肖" }),
-    { status: "杀码成功", detail: "特码 49（蛇）未落入杀一肖" },
+    formatZodiacExclusionReviewResult({ hit: true, actualZodiac: "蛇", exclusionLabel: "杀一肖" }),
+    { status: "杀肖成功", detail: "实际生肖：蛇，未落入杀一肖" },
   );
 });
 
