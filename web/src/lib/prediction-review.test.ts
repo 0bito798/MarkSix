@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { formatExclusionReviewResult, orderPicksByScoreDesc } from "@/lib/review-display";
 import { reviewPredictionRun, reviewWaveExclusion } from "@/lib/prediction-review";
 
 test("wave exclusion review misses when excluded wave equals the actual wave", () => {
@@ -126,4 +127,30 @@ test("legacy number reviews default to recommendation semantics when selection m
   assert.equal(legacy.hitCount, 1);
   assert.equal(legacy.hitRate, Number((1 / 3).toFixed(4)));
   assert.deepEqual(legacy.matchedNumbers, [7]);
+});
+
+test("exclusion display uses kill-ten success and failure language for number and zodiac kills", () => {
+  assert.deepEqual(
+    formatExclusionReviewResult({ hit: true, actualNumber: 7, exclusionLabel: "10码" }),
+    { status: "杀码成功", detail: "特码 07 未落入10码" },
+  );
+  assert.deepEqual(
+    formatExclusionReviewResult({ hit: false, actualNumber: 12, actualZodiac: "马", exclusionLabel: "杀二肖" }),
+    { status: "误杀特码", detail: "特码 12（马）落入杀二肖" },
+  );
+  assert.deepEqual(
+    formatExclusionReviewResult({ hit: true, actualNumber: 49, actualZodiac: "蛇", exclusionLabel: "杀一肖" }),
+    { status: "杀码成功", detail: "特码 49（蛇）未落入杀一肖" },
+  );
+});
+
+test("kill-ten display order follows score descending with rank as a stable tie-breaker", () => {
+  const picks = [
+    { number: 5, score: 0.8, rank: 3 },
+    { number: 42, score: 0.9, rank: 2 },
+    { number: 1, score: 0.9, rank: 1 },
+  ];
+
+  assert.deepEqual(orderPicksByScoreDesc(picks).map((pick) => pick.number), [1, 42, 5]);
+  assert.deepEqual(picks.map((pick) => pick.number), [5, 42, 1]);
 });
