@@ -1,6 +1,10 @@
 ﻿import { prisma } from "@/lib/prisma";
 import { describeSpecialNumber, getWaveColor, getZodiacForNumber, inferYearFromIssue, macauIssueWhere } from "@/lib/marksix";
-import { formatExclusionReviewResult, orderPicksByScoreDesc } from "@/lib/review-display";
+import {
+  formatExclusionReviewResult,
+  formatZodiacExclusionReviewResult,
+  orderPicksByScoreDesc,
+} from "@/lib/review-display";
 import { scheduledStrategies, strategyMeta } from "@/lib/strategies";
 import { type StrategyId } from "@/lib/types";
 import { waveSummaryFromDetailOrNumbers } from "@/lib/wave-summary";
@@ -78,12 +82,10 @@ function WaveReviewResult({ hit, actualWave }: { hit: boolean; actualWave: strin
 
 function ZodiacReviewResult({
   detail,
-  actualNumber,
   actualZodiac,
   hit,
 }: {
   detail: { mode: string; zodiacsJson: string };
-  actualNumber: number;
   actualZodiac: string;
   hit: boolean;
 }) {
@@ -91,9 +93,8 @@ function ZodiacReviewResult({
   const selected = zodiacs.some((item) => item.zodiac === actualZodiac);
 
   if (detail.mode === "EXCLUDE") {
-    const result = formatExclusionReviewResult({
+    const result = formatZodiacExclusionReviewResult({
       hit,
-      actualNumber,
       actualZodiac,
       exclusionLabel: zodiacs.length === 1 ? "杀一肖" : "杀二肖",
     });
@@ -286,10 +287,20 @@ export default async function ReviewPage({
                     const isZodiacStrategy = Boolean(review.run.zodiacDetail);
                     const isNumberExclusion = review.run.selectionMode === "EXCLUDE";
                     const isZodiacExclusion = review.run.zodiacDetail?.mode === "EXCLUDE";
-                    const isExclusionStrategy = isNumberExclusion || isZodiacExclusion;
                     const displayPicks = isNumberExclusion ? orderPicksByScoreDesc(review.run.picks) : review.run.picks;
                     const actualWave = getWaveColor(review.draw.specialNumber);
                     const actualZodiac = getZodiacForNumber(review.draw.specialNumber, year);
+                    const status = isNumberExclusion
+                      ? review.hitCount > 0
+                        ? "杀码成功"
+                        : "误杀特码"
+                      : isZodiacExclusion
+                        ? review.hitCount > 0
+                          ? "杀肖成功"
+                          : "误杀生肖"
+                        : review.hitCount > 0
+                          ? "命中"
+                          : "未中";
 
                     return (
                       <tr key={review.id}>
@@ -306,14 +317,13 @@ export default async function ReviewPage({
                             </span>
                           ) : null}
                         </td>
-                        <td>{isExclusionStrategy ? (review.hitCount > 0 ? "杀码成功" : "误杀特码") : review.hitCount > 0 ? "命中" : "未中"}</td>
+                        <td>{status}</td>
                         <td>
                           {isWaveStrategy ? (
                             <WaveReviewResult hit={review.hitCount > 0} actualWave={actualWave} />
                           ) : isZodiacStrategy && review.run.zodiacDetail ? (
                             <ZodiacReviewResult
                               detail={review.run.zodiacDetail}
-                              actualNumber={review.draw.specialNumber}
                               actualZodiac={actualZodiac}
                               hit={review.hitCount > 0}
                             />
