@@ -1,4 +1,4 @@
-import { PredictionStatus } from "@prisma/client";
+import { PredictionStatus, type PrismaClient } from "@prisma/client";
 import { getWaveColor, getZodiacForNumber, inferYearFromIssue, macauIssueWhere, nextMacauIssueNo } from "@/lib/marksix";
 import { reviewPredictionRun } from "@/lib/prediction-review";
 import { prisma } from "@/lib/prisma";
@@ -18,8 +18,12 @@ function nextIssueNo(issueNo: string): string {
   return `${year}/${String(seq + 1).padStart(no.length, "0")}`;
 }
 
-export async function generatePredictionsForIssue(issueNo: string, strategyIds?: StrategyId[]) {
-  const draws = await prisma.draw.findMany({
+export async function generatePredictionsForIssueWithClient(
+  client: PrismaClient,
+  issueNo: string,
+  strategyIds?: StrategyId[],
+) {
+  const draws = await client.draw.findMany({
     where: macauIssueWhere(),
     orderBy: { drawDate: "desc" },
   });
@@ -32,9 +36,19 @@ export async function generatePredictionsForIssue(issueNo: string, strategyIds?:
   const createdRuns: number[] = [];
 
   for (const strategy of strategyList) {
+    if (strategy === "kill_ten_special_v1") {
+      const existingRun = await client.predictionRun.findFirst({
+        where: { issueNo, strategy },
+        select: { id: true },
+      });
+      if (existingRun) {
+        continue;
+      }
+    }
+
     const result = generateStrategyResult(strategy, draws, issueNo);
 
-    const run = await prisma.predictionRun.upsert({
+    const run = await client.predictionRun.upsert({
       where: {
         issueNo_strategy_strategyVersion: {
           issueNo,
@@ -59,9 +73,9 @@ export async function generatePredictionsForIssue(issueNo: string, strategyIds?:
       select: { id: true },
     });
 
-    await prisma.predictionPick.deleteMany({ where: { runId: run.id } });
+    await client.predictionPick.deleteMany({ where: { runId: run.id } });
     if (result.picks.length > 0) {
-      await prisma.predictionPick.createMany({
+      await client.predictionPick.createMany({
         data: result.picks.map((pick) => ({
           runId: run.id,
           number: pick.number,
@@ -85,13 +99,13 @@ export async function generatePredictionsForIssue(issueNo: string, strategyIds?:
         voterPatternJson: JSON.stringify(wavePrediction.voterPattern),
         recentCountsJson: JSON.stringify(wavePrediction.recentCounts),
       };
-      await prisma.wavePredictionDetail.upsert({
+      await client.wavePredictionDetail.upsert({
         where: { runId: run.id },
         update: { ...common, actualWave: null, hit: null, reviewedAt: null },
         create: { runId: run.id, ...common },
       });
     } else {
-      await prisma.wavePredictionDetail.deleteMany({ where: { runId: run.id } });
+      await client.wavePredictionDetail.deleteMany({ where: { runId: run.id } });
     }
 
     if (result.zodiacSelection) {
@@ -100,19 +114,23 @@ export async function generatePredictionsForIssue(issueNo: string, strategyIds?:
         mode: result.zodiacSelection.mode,
         zodiacsJson: JSON.stringify(result.zodiacSelection.zodiacs),
       };
-      await prisma.zodiacPredictionDetail.upsert({
+      await client.zodiacPredictionDetail.upsert({
         where: { runId: run.id },
         update: { ...common, actualZodiac: null, hit: null, reviewedAt: null },
         create: { runId: run.id, ...common },
       });
     } else {
-      await prisma.zodiacPredictionDetail.deleteMany({ where: { runId: run.id } });
+      await client.zodiacPredictionDetail.deleteMany({ where: { runId: run.id } });
     }
 
     createdRuns.push(run.id);
   }
 
   return createdRuns;
+}
+
+export async function generatePredictionsForIssue(issueNo: string, strategyIds?: StrategyId[]) {
+  return generatePredictionsForIssueWithClient(prisma, issueNo, strategyIds);
 }
 
 export async function generatePredictionsForNextIssue(strategyIds?: StrategyId[]) {

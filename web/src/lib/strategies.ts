@@ -16,6 +16,13 @@ import { predictWaveColorWithPythonParity } from "@/lib/wave-python-parity";
 type NumberMap = Map<number, number>;
 type StringMap = Map<string, number>;
 type WaveColor = "红波" | "蓝波" | "绿波";
+export type KillTenAlgorithm = "legacy" | "full49";
+export type GenerateStrategyOptions = {
+  killTenAlgorithm?: KillTenAlgorithm;
+};
+
+export const KILL_TEN_FULL49_VERSION = "kill_ten_special_full49_v2";
+const KILL_TEN_FULL49_FROM_ISSUE = "2026209";
 type WavePrediction = {
   predictedWaves: WaveColor[];
   excludedWave: WaveColor;
@@ -597,6 +604,92 @@ function rankedCandidateSupport(scores: NumberMap, count: number): NumberMap {
   return support;
 }
 
+export function rankAllNumberSupport(scores: ReadonlyMap<number, number>): {
+  ranks: NumberMap;
+  support: NumberMap;
+} {
+  const ranks = createNumberMap();
+  const support = createNumberMap();
+  const ranked = ALL_NUMBERS.map((number) => ({ number, score: scores.get(number) ?? 0 }))
+    .sort((left, right) => right.score - left.score || left.number - right.number);
+
+  let start = 0;
+  while (start < ranked.length) {
+    let end = start + 1;
+    while (end < ranked.length && ranked[end].score === ranked[start].score) {
+      end += 1;
+    }
+
+    const averageRank = ((start + 1) + end) / 2;
+    const normalizedSupport = (ALL_NUMBERS.length - averageRank + 1) / ALL_NUMBERS.length;
+    for (let index = start; index < end; index += 1) {
+      ranks.set(ranked[index].number, averageRank);
+      support.set(ranked[index].number, normalizedSupport);
+    }
+    start = end;
+  }
+
+  return { ranks, support };
+}
+
+function formatSupportRank(rank: number): string {
+  return Number.isInteger(rank) ? String(rank) : rank.toFixed(1);
+}
+
+export function buildFullRankKillTenPicks(
+  hotScores: ReadonlyMap<number, number>,
+  coldScores: ReadonlyMap<number, number>,
+  knowledgeScores: ReadonlyMap<number, number>,
+): StrategyResult["picks"] {
+  const hot = rankAllNumberSupport(hotScores);
+  const cold = rankAllNumberSupport(coldScores);
+  const knowledge = rankAllNumberSupport(knowledgeScores);
+
+  return ALL_NUMBERS.map((number) => {
+    const hotSupport = hot.support.get(number) ?? 0;
+    const coldSupport = cold.support.get(number) ?? 0;
+    const knowledgeSupport = knowledge.support.get(number) ?? 0;
+    const protection = hotSupport + coldSupport + 2 * knowledgeSupport;
+    return {
+      number,
+      score: 1 - protection / 4,
+      hotRank: hot.ranks.get(number) ?? ALL_NUMBERS.length,
+      coldRank: cold.ranks.get(number) ?? ALL_NUMBERS.length,
+      knowledgeRank: knowledge.ranks.get(number) ?? ALL_NUMBERS.length,
+      hotSupport,
+      coldSupport,
+      knowledgeSupport,
+    };
+  })
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        right.knowledgeRank - left.knowledgeRank ||
+        right.hotRank - left.hotRank ||
+        right.coldRank - left.coldRank ||
+        left.number - right.number,
+    )
+    .slice(0, strategyMeta.kill_ten_special_v1.limit)
+    .map((candidate, index) => ({
+      number: candidate.number,
+      rank: index + 1,
+      score: candidate.score,
+      reason: [
+        `杀码分 ${candidate.score.toFixed(3)}`,
+        `综合保护 ${candidate.knowledgeSupport.toFixed(3)}（第${formatSupportRank(candidate.knowledgeRank)}）`,
+        `热门保护 ${candidate.hotSupport.toFixed(3)}（第${formatSupportRank(candidate.hotRank)}）`,
+        `冷门保护 ${candidate.coldSupport.toFixed(3)}（第${formatSupportRank(candidate.coldRank)}）`,
+      ].join(" · "),
+    }));
+}
+
+function resolveKillTenAlgorithm(issueNo: string, override?: KillTenAlgorithm): KillTenAlgorithm {
+  if (override) {
+    return override;
+  }
+  return /^\d{7}$/.test(issueNo) && Number(issueNo) >= Number(KILL_TEN_FULL49_FROM_ISSUE) ? "full49" : "legacy";
+}
+
 export function predictWaveColor(draws: Draw[], _issueNo: string): WavePrediction {
   return predictWaveColorWithPythonParity(draws);
 }
@@ -659,7 +752,12 @@ export const strategyMeta: Record<StrategyId, { name: string; description: strin
   },
 };
 
-export function generateStrategyResult(strategy: StrategyId, recentDraws: Draw[], issueNo: string): StrategyResult {
+export function generateStrategyResult(
+  strategy: StrategyId,
+  recentDraws: Draw[],
+  issueNo: string,
+  options: GenerateStrategyOptions = {},
+): StrategyResult {
   const targetYear = inferYearFromIssue(issueNo, recentDraws[0]?.drawDate.getUTCFullYear());
   const longWindow = recentDraws.slice(0, Math.min(recentDraws.length, 180));
   const mediumWindow = recentDraws.slice(0, Math.min(recentDraws.length, 72));
@@ -723,6 +821,15 @@ export function generateStrategyResult(strategy: StrategyId, recentDraws: Draw[]
   const adjustedMix = applyRecentPenalty(recentDraws, mixScores);
 
   if (strategy === "kill_ten_special_v1") {
+    if (resolveKillTenAlgorithm(issueNo, options.killTenAlgorithm) === "full49") {
+      return {
+        strategy,
+        strategyVersion: KILL_TEN_FULL49_VERSION,
+        selectionMode: "EXCLUDE",
+        picks: buildFullRankKillTenPicks(adjustedHot, adjustedCold, adjustedMix),
+      };
+    }
+
     const hotSupport = rankedCandidateSupport(adjustedHot, strategyMeta.hot_special_v1.limit);
     const coldSupport = rankedCandidateSupport(adjustedCold, strategyMeta.cold_special_v1.limit);
     const knowledgeSupport = rankedCandidateSupport(adjustedMix, strategyMeta.knowledge_mix_v1.limit);
