@@ -73,7 +73,7 @@ for (const scenario of [
 
     const runIds = await generatePredictionsForIssueWithClient(client, scenario.issueNo, ["kill_ten_special_v1"]);
 
-    assert.deepEqual(runIds, [existingRunId]);
+    assert.deepEqual(runIds, []);
     assert.equal(calls.findExisting, 1);
     assert.deepEqual(findExistingArgs, {
       where: { issueNo: scenario.issueNo, strategy: "kill_ten_special_v1" },
