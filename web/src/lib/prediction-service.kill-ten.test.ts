@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { type PrismaClient } from "@prisma/client";
 import { generatePredictionsForIssueWithClient } from "@/lib/prediction-service";
+import { KILL_TEN_FULL49_VERSION } from "@/lib/strategies";
 
 function makeDraws() {
   return Array.from({ length: 20 }, (_, index) => ({
@@ -20,7 +21,7 @@ for (const scenario of [
   { issueNo: "2026208", label: "legacy pending" },
   { issueNo: "2026209", label: "full-field reviewed" },
 ]) {
-  test(`existing ${scenario.label} kill-ten run is returned without persistence writes`, async () => {
+  test(`existing ${scenario.label} kill-ten run is preserved without persistence writes`, async () => {
     const draws = makeDraws();
     const existingRunId = scenario.issueNo === "2026208" ? 208 : 209;
     const calls = {
@@ -86,3 +87,75 @@ for (const scenario of [
     assert.equal(calls.deleteZodiac, 0);
   });
 }
+
+test("a new issue 2026209 kill-ten run persists the full-field version and ten exclusions", async () => {
+  const draws = makeDraws();
+  let upsertArgs: unknown;
+  let createPicksArgs: { data: Array<{ number: number; rank: number; score: number; reason: string }> } | undefined;
+  const client = {
+    draw: {
+      findMany: async () => draws,
+    },
+    predictionRun: {
+      findFirst: async () => null,
+      upsert: async (args: unknown) => {
+        upsertArgs = args;
+        return { id: 209 };
+      },
+    },
+    predictionPick: {
+      deleteMany: async () => ({ count: 0 }),
+      createMany: async (args: typeof createPicksArgs) => {
+        createPicksArgs = args;
+        return { count: args?.data.length ?? 0 };
+      },
+    },
+    wavePredictionDetail: {
+      deleteMany: async () => ({ count: 0 }),
+    },
+    zodiacPredictionDetail: {
+      deleteMany: async () => ({ count: 0 }),
+    },
+  } as unknown as PrismaClient;
+
+  const runIds = await generatePredictionsForIssueWithClient(client, "2026209", ["kill_ten_special_v1"]);
+
+  assert.deepEqual(runIds, [209]);
+  const persisted = upsertArgs as {
+    where: unknown;
+    update: { createdAt: Date; selectionMode: string; status: string; hitCount: null; hitRate: null; reviewedAt: null };
+    create: unknown;
+    select: unknown;
+  };
+  assert.ok(persisted.update.createdAt instanceof Date);
+  assert.deepEqual({
+    ...persisted,
+    update: { ...persisted.update, createdAt: undefined },
+  }, {
+    where: {
+      issueNo_strategy_strategyVersion: {
+        issueNo: "2026209",
+        strategy: "kill_ten_special_v1",
+        strategyVersion: KILL_TEN_FULL49_VERSION,
+      },
+    },
+    update: {
+      createdAt: undefined,
+      selectionMode: "EXCLUDE",
+      status: "PENDING",
+      hitCount: null,
+      hitRate: null,
+      reviewedAt: null,
+    },
+    create: {
+      issueNo: "2026209",
+      strategy: "kill_ten_special_v1",
+      strategyVersion: KILL_TEN_FULL49_VERSION,
+      selectionMode: "EXCLUDE",
+    },
+    select: { id: true },
+  });
+  assert.equal(createPicksArgs?.data.length, 10);
+  assert.deepEqual(createPicksArgs?.data.map((pick) => pick.rank), Array.from({ length: 10 }, (_, index) => index + 1));
+  assert.ok(createPicksArgs?.data.every((pick) => /^杀码分 \d\.\d{3}/.test(pick.reason)));
+});
