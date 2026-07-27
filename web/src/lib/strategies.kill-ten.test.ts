@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  KILL_TEN_FULL49_VERSION,
+  KILL_TEN_SCORED_VERSION,
   allStrategies,
-  buildFullRankKillTenPicks,
   generateStrategyResult,
   rankAllNumberSupport,
+  scoreSelectedKillTenPicks,
   scheduledStrategies,
 } from "@/lib/strategies";
 import { type StrategyId, type StrategyResult } from "@/lib/types";
@@ -83,18 +83,20 @@ test("full-field support ranks all 49 numbers and shares average ranks for equal
   assert.equal(ranked.support.get(49), 1 / 49);
 });
 
-test("full-field kill-ten uses weighted support and comprehensive-rank tie breaking", () => {
+test("full-field scoring only reorders the supplied legacy exclusions", () => {
   const hotScores = new Map(Array.from({ length: 49 }, (_, index) => [index + 1, 49 - index]));
   const coldScores = new Map(hotScores);
   const knowledgeScores = new Map(hotScores);
   knowledgeScores.set(48, 0);
   knowledgeScores.set(49, 1);
+  const legacyExclusions = [1, 2, 3, 4, 5, 6, 7, 8, 48, 49];
 
-  const picks = buildFullRankKillTenPicks(hotScores, coldScores, knowledgeScores);
+  const picks = scoreSelectedKillTenPicks(legacyExclusions, hotScores, coldScores, knowledgeScores);
 
   assert.equal(picks.length, 10);
   assert.equal(new Set(picks.map((pick) => pick.number)).size, 10);
-  assert.ok(picks.every((pick) => pick.number >= 1 && pick.number <= 49));
+  assert.deepEqual([...picks.map((pick) => pick.number)].sort((a, b) => a - b), legacyExclusions);
+  assert.ok(!picks.some((pick) => pick.number === 47));
   assert.deepEqual(picks.map((pick) => pick.rank), Array.from({ length: 10 }, (_, index) => index + 1));
   assert.equal(picks[0].number, 48);
   assert.equal(picks[1].number, 49);
@@ -105,14 +107,19 @@ test("full-field kill-ten uses weighted support and comprehensive-rank tie break
   assert.match(picks[0].reason, /冷门保护 \d\.\d{3}（第48）$/);
 });
 
-test("kill_ten_special_v1 switches to the full-field version from issue 2026209", () => {
+test("kill_ten_special_v1 keeps the legacy exclusion set and adds full-field scores from issue 2026209", () => {
   const result = generateStrategyResult("kill_ten_special_v1", draws, "2026209");
+  const legacy = generateStrategyResult("kill_ten_special_v1", draws, "2026209", { killTenAlgorithm: "legacy" });
   const repeated = generateStrategyResult("kill_ten_special_v1", draws, "2026209");
 
-  assert.equal(result.strategyVersion, KILL_TEN_FULL49_VERSION);
   assert.equal(result.selectionMode, "EXCLUDE");
   assert.equal(result.picks.length, 10);
   assert.equal(new Set(result.picks.map((pick) => pick.number)).size, 10);
+  assert.deepEqual(
+    [...result.picks.map((pick) => pick.number)].sort((a, b) => a - b),
+    [...legacy.picks.map((pick) => pick.number)].sort((a, b) => a - b),
+  );
+  assert.equal(result.strategyVersion, KILL_TEN_SCORED_VERSION);
   assert.ok(result.picks.every((pick) => pick.score < 1));
   assert.ok(new Set(result.picks.map((pick) => pick.score.toFixed(3))).size > 1);
   assert.ok(result.picks.every((pick) => /^杀码分 \d\.\d{3}/.test(pick.reason)));

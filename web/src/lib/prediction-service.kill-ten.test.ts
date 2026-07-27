@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { type PrismaClient } from "@prisma/client";
 import { generatePredictionsForIssueWithClient } from "@/lib/prediction-service";
-import { KILL_TEN_FULL49_VERSION } from "@/lib/strategies";
+import { KILL_TEN_SCORED_VERSION } from "@/lib/strategies";
 
 function makeDraws() {
   return Array.from({ length: 20 }, (_, index) => ({
@@ -88,7 +88,7 @@ for (const scenario of [
   });
 }
 
-test("a new issue 2026209 kill-ten run persists the full-field version and ten exclusions", async () => {
+test("a new issue 2026209 kill-ten run persists the legacy-pool scored version and ten exclusions", async () => {
   const draws = makeDraws();
   let upsertArgs: unknown;
   let createPicksArgs: { data: Array<{ number: number; rank: number; score: number; reason: string }> } | undefined;
@@ -136,7 +136,7 @@ test("a new issue 2026209 kill-ten run persists the full-field version and ten e
       issueNo_strategy_strategyVersion: {
         issueNo: "2026209",
         strategy: "kill_ten_special_v1",
-        strategyVersion: KILL_TEN_FULL49_VERSION,
+        strategyVersion: KILL_TEN_SCORED_VERSION,
       },
     },
     update: {
@@ -150,7 +150,7 @@ test("a new issue 2026209 kill-ten run persists the full-field version and ten e
     create: {
       issueNo: "2026209",
       strategy: "kill_ten_special_v1",
-      strategyVersion: KILL_TEN_FULL49_VERSION,
+      strategyVersion: KILL_TEN_SCORED_VERSION,
       selectionMode: "EXCLUDE",
     },
     select: { id: true },
