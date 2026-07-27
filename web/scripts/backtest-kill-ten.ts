@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { type Draw } from "@prisma/client";
-import { generateStrategyResult } from "../src/lib/strategies";
+import {
+  KILL_TEN_FULL49_VERSION,
+  generateStrategyResult,
+  type KillTenAlgorithm,
+} from "../src/lib/strategies";
 
 type FixtureDraw = {
   drawDate: string;
@@ -15,6 +19,15 @@ type WindowResult = {
   failures: number;
   successRate: number;
   failureRate: number;
+};
+
+type BacktestResult = {
+  algorithm: KillTenAlgorithm;
+  version: string;
+  all: WindowResult;
+  latest400: WindowResult;
+  latest100: WindowResult;
+  maxFailureStreak: number;
 };
 
 const MIN_HISTORY = 180;
@@ -57,31 +70,61 @@ const records: Draw[] = fixture.draws.map((draw, index) => ({
   updatedAt: new Date(0),
 }));
 
-const failures: number[] = [];
-let currentFailureStreak = 0;
-let maxFailureStreak = 0;
+function backtest(algorithm: KillTenAlgorithm): BacktestResult {
+  const failures: number[] = [];
+  let currentFailureStreak = 0;
+  let maxFailureStreak = 0;
+  let version = "";
 
-for (let targetIndex = MIN_HISTORY; targetIndex < records.length; targetIndex += 1) {
-  const target = records[targetIndex];
-  const history = records.slice(0, targetIndex).reverse();
-  const result = generateStrategyResult("kill_ten_special_v1", history, target.issueNo);
-  const excluded = result.picks.map((pick) => pick.number);
+  for (let targetIndex = MIN_HISTORY; targetIndex < records.length; targetIndex += 1) {
+    const target = records[targetIndex];
+    const history = records.slice(0, targetIndex).reverse();
+    const result = generateStrategyResult("kill_ten_special_v1", history, target.issueNo, {
+      killTenAlgorithm: algorithm,
+    });
+    const excluded = result.picks.map((pick) => pick.number);
 
-  if (result.selectionMode !== "EXCLUDE" || excluded.length !== 10 || new Set(excluded).size !== 10) {
-    throw new Error(`Invalid kill-ten output for ${target.issueNo}`);
+    if (result.selectionMode !== "EXCLUDE" || excluded.length !== 10 || new Set(excluded).size !== 10) {
+      throw new Error(`Invalid ${algorithm} kill-ten output for ${target.issueNo}`);
+    }
+
+    version = result.strategyVersion;
+    const failed = excluded.includes(target.specialNumber) ? 1 : 0;
+    failures.push(failed);
+    currentFailureStreak = failed ? currentFailureStreak + 1 : 0;
+    maxFailureStreak = Math.max(maxFailureStreak, currentFailureStreak);
   }
 
-  const failed = excluded.includes(target.specialNumber) ? 1 : 0;
-  failures.push(failed);
-  currentFailureStreak = failed ? currentFailureStreak + 1 : 0;
-  maxFailureStreak = Math.max(maxFailureStreak, currentFailureStreak);
+  const expectedVersion = algorithm === "full49" ? KILL_TEN_FULL49_VERSION : "kill_ten_special_v1";
+  if (version !== expectedVersion) {
+    throw new Error(`Unexpected ${algorithm} version: ${version}`);
+  }
+
+  return {
+    algorithm,
+    version,
+    all: summarize(failures),
+    latest400: summarize(failures.slice(-400)),
+    latest100: summarize(failures.slice(-100)),
+    maxFailureStreak,
+  };
 }
 
-console.log(`kill_ten_special_v1 walk-forward (history only, minHistory=${MIN_HISTORY})`);
-printWindow("all", summarize(failures));
-printWindow("latest400", summarize(failures.slice(-400)));
-printWindow("latest100", summarize(failures.slice(-100)));
-console.log(`maxConsecutiveFailures=${maxFailureStreak}`);
+function printBacktest(result: BacktestResult): void {
+  console.log(`${result.algorithm} version=${result.version}`);
+  printWindow("all", result.all);
+  printWindow("latest400", result.latest400);
+  printWindow("latest100", result.latest100);
+  console.log(`maxConsecutiveFailures=${result.maxFailureStreak}`);
+}
+
+const legacy = backtest("legacy");
+const full49 = backtest("full49");
+
+console.log(`kill_ten_special_v1 walk-forward comparison (history only, minHistory=${MIN_HISTORY})`);
+printBacktest(legacy);
+printBacktest(full49);
+console.log(`full49SuccessDelta=${percent(full49.all.successRate - legacy.all.successRate)}`);
 console.log(
   `randomBaselineSuccess=${percent(RANDOM_SUCCESS_RATE)} randomBaselineFailure=${percent(1 - RANDOM_SUCCESS_RATE)}`,
 );
