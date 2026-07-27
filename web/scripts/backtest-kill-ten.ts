@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { type Draw } from "@prisma/client";
 import {
-  KILL_TEN_FULL49_VERSION,
+  KILL_TEN_SCORED_VERSION,
   generateStrategyResult,
   type KillTenAlgorithm,
 } from "../src/lib/strategies";
@@ -28,6 +28,7 @@ type BacktestResult = {
   latest400: WindowResult;
   latest100: WindowResult;
   maxFailureStreak: number;
+  exclusionSignatures: string[];
 };
 
 const MIN_HISTORY = 180;
@@ -75,6 +76,7 @@ function backtest(algorithm: KillTenAlgorithm): BacktestResult {
   let currentFailureStreak = 0;
   let maxFailureStreak = 0;
   let version = "";
+  const exclusionSignatures: string[] = [];
 
   for (let targetIndex = MIN_HISTORY; targetIndex < records.length; targetIndex += 1) {
     const target = records[targetIndex];
@@ -89,13 +91,14 @@ function backtest(algorithm: KillTenAlgorithm): BacktestResult {
     }
 
     version = result.strategyVersion;
+    exclusionSignatures.push([...excluded].sort((left, right) => left - right).join(","));
     const failed = excluded.includes(target.specialNumber) ? 1 : 0;
     failures.push(failed);
     currentFailureStreak = failed ? currentFailureStreak + 1 : 0;
     maxFailureStreak = Math.max(maxFailureStreak, currentFailureStreak);
   }
 
-  const expectedVersion = algorithm === "full49" ? KILL_TEN_FULL49_VERSION : "kill_ten_special_v1";
+  const expectedVersion = algorithm === "legacy_scored" ? KILL_TEN_SCORED_VERSION : "kill_ten_special_v1";
   if (version !== expectedVersion) {
     throw new Error(`Unexpected ${algorithm} version: ${version}`);
   }
@@ -107,6 +110,7 @@ function backtest(algorithm: KillTenAlgorithm): BacktestResult {
     latest400: summarize(failures.slice(-400)),
     latest100: summarize(failures.slice(-100)),
     maxFailureStreak,
+    exclusionSignatures,
   };
 }
 
@@ -119,12 +123,19 @@ function printBacktest(result: BacktestResult): void {
 }
 
 const legacy = backtest("legacy");
-const full49 = backtest("full49");
+const legacyScored = backtest("legacy_scored");
+
+for (let index = 0; index < legacy.exclusionSignatures.length; index += 1) {
+  if (legacy.exclusionSignatures[index] !== legacyScored.exclusionSignatures[index]) {
+    throw new Error(`Scored exclusions changed at walk-forward index ${index}`);
+  }
+}
 
 console.log(`kill_ten_special_v1 walk-forward comparison (history only, minHistory=${MIN_HISTORY})`);
 printBacktest(legacy);
-printBacktest(full49);
-console.log(`full49SuccessDelta=${percent(full49.all.successRate - legacy.all.successRate)}`);
+printBacktest(legacyScored);
+console.log(`legacyScoredSuccessDelta=${percent(legacyScored.all.successRate - legacy.all.successRate)}`);
+console.log(`identicalExclusionSets=${legacy.exclusionSignatures.length}`);
 console.log(
   `randomBaselineSuccess=${percent(RANDOM_SUCCESS_RATE)} randomBaselineFailure=${percent(1 - RANDOM_SUCCESS_RATE)}`,
 );

@@ -16,13 +16,13 @@ import { predictWaveColorWithPythonParity } from "@/lib/wave-python-parity";
 type NumberMap = Map<number, number>;
 type StringMap = Map<string, number>;
 type WaveColor = "红波" | "蓝波" | "绿波";
-export type KillTenAlgorithm = "legacy" | "full49";
+export type KillTenAlgorithm = "legacy" | "legacy_scored";
 export type GenerateStrategyOptions = {
   killTenAlgorithm?: KillTenAlgorithm;
 };
 
-export const KILL_TEN_FULL49_VERSION = "kill_ten_special_full49_v2";
-const KILL_TEN_FULL49_FROM_ISSUE = "2026209";
+export const KILL_TEN_SCORED_VERSION = "kill_ten_special_legacy_pool_full49_score_v2";
+const KILL_TEN_SCORED_FROM_ISSUE = "2026209";
 type WavePrediction = {
   predictedWaves: WaveColor[];
   excludedWave: WaveColor;
@@ -636,7 +636,8 @@ function formatSupportRank(rank: number): string {
   return Number.isInteger(rank) ? String(rank) : rank.toFixed(1);
 }
 
-export function buildFullRankKillTenPicks(
+export function scoreSelectedKillTenPicks(
+  selectedNumbers: readonly number[],
   hotScores: ReadonlyMap<number, number>,
   coldScores: ReadonlyMap<number, number>,
   knowledgeScores: ReadonlyMap<number, number>,
@@ -645,7 +646,7 @@ export function buildFullRankKillTenPicks(
   const cold = rankAllNumberSupport(coldScores);
   const knowledge = rankAllNumberSupport(knowledgeScores);
 
-  return ALL_NUMBERS.map((number) => {
+  return selectedNumbers.map((number) => {
     const hotSupport = hot.support.get(number) ?? 0;
     const coldSupport = cold.support.get(number) ?? 0;
     const knowledgeSupport = knowledge.support.get(number) ?? 0;
@@ -669,7 +670,6 @@ export function buildFullRankKillTenPicks(
         right.coldRank - left.coldRank ||
         left.number - right.number,
     )
-    .slice(0, strategyMeta.kill_ten_special_v1.limit)
     .map((candidate, index) => ({
       number: candidate.number,
       rank: index + 1,
@@ -687,7 +687,9 @@ function resolveKillTenAlgorithm(issueNo: string, override?: KillTenAlgorithm): 
   if (override) {
     return override;
   }
-  return /^\d{7}$/.test(issueNo) && Number(issueNo) >= Number(KILL_TEN_FULL49_FROM_ISSUE) ? "full49" : "legacy";
+  return /^\d{7}$/.test(issueNo) && Number(issueNo) >= Number(KILL_TEN_SCORED_FROM_ISSUE)
+    ? "legacy_scored"
+    : "legacy";
 }
 
 export function predictWaveColor(draws: Draw[], _issueNo: string): WavePrediction {
@@ -742,7 +744,7 @@ export const strategyMeta: Record<StrategyId, { name: string; description: strin
   },
   kill_ten_special_v1: {
     name: "杀十码",
-    description: "二次强化热门、冷门和综合排名，排除保护分最低的十个号码",
+    description: "沿用热门、冷门和综合保护池选出十码，再用全49码排名区分杀码分",
     limit: 10,
   },
   wave_special_v1: {
@@ -821,15 +823,6 @@ export function generateStrategyResult(
   const adjustedMix = applyRecentPenalty(recentDraws, mixScores);
 
   if (strategy === "kill_ten_special_v1") {
-    if (resolveKillTenAlgorithm(issueNo, options.killTenAlgorithm) === "full49") {
-      return {
-        strategy,
-        strategyVersion: KILL_TEN_FULL49_VERSION,
-        selectionMode: "EXCLUDE",
-        picks: buildFullRankKillTenPicks(adjustedHot, adjustedCold, adjustedMix),
-      };
-    }
-
     const hotSupport = rankedCandidateSupport(adjustedHot, strategyMeta.hot_special_v1.limit);
     const coldSupport = rankedCandidateSupport(adjustedCold, strategyMeta.cold_special_v1.limit);
     const knowledgeSupport = rankedCandidateSupport(adjustedMix, strategyMeta.knowledge_mix_v1.limit);
@@ -842,19 +835,34 @@ export function generateStrategyResult(
         return [number, 1 - protection / 4];
       }),
     );
+    const legacyPicks = pickTopCandidates(killScores, strategyMeta[strategy].limit, (number, score) =>
+      [
+        `杀码分 ${score.toFixed(2)}`,
+        `综合保护 ${(knowledgeSupport.get(number) ?? 0).toFixed(2)}`,
+        `热门保护 ${(hotSupport.get(number) ?? 0).toFixed(2)}`,
+        `冷门保护 ${(coldSupport.get(number) ?? 0).toFixed(2)}`,
+      ].join(" · "),
+    );
+
+    if (resolveKillTenAlgorithm(issueNo, options.killTenAlgorithm) === "legacy_scored") {
+      return {
+        strategy,
+        strategyVersion: KILL_TEN_SCORED_VERSION,
+        selectionMode: "EXCLUDE",
+        picks: scoreSelectedKillTenPicks(
+          legacyPicks.map((pick) => pick.number),
+          adjustedHot,
+          adjustedCold,
+          adjustedMix,
+        ),
+      };
+    }
 
     return {
       strategy,
       strategyVersion: strategy,
       selectionMode: "EXCLUDE",
-      picks: pickTopCandidates(killScores, strategyMeta[strategy].limit, (number, score) =>
-        [
-          `杀码分 ${score.toFixed(2)}`,
-          `综合保护 ${(knowledgeSupport.get(number) ?? 0).toFixed(2)}`,
-          `热门保护 ${(hotSupport.get(number) ?? 0).toFixed(2)}`,
-          `冷门保护 ${(coldSupport.get(number) ?? 0).toFixed(2)}`,
-        ].join(" · "),
-      ),
+      picks: legacyPicks,
     };
   }
 

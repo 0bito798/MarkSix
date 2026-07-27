@@ -19,7 +19,7 @@ function makeDraws() {
 
 for (const scenario of [
   { issueNo: "2026208", label: "legacy pending" },
-  { issueNo: "2026209", label: "full-field reviewed" },
+  { issueNo: "2026209", label: "legacy-pool scored reviewed" },
 ]) {
   test(`existing ${scenario.label} kill-ten run is preserved without persistence writes`, async () => {
     const draws = makeDraws();
