@@ -241,7 +241,7 @@ export default async function HomePage() {
             <p className="kv">{strategyMeta[run.strategy as keyof typeof strategyMeta]?.description}</p>
             <p className="kv">目标期号: {run.issueNo}</p>
             {run.waveDetail ? <WaveRiskBoard detail={run.waveDetail} /> : null}
-            {run.zodiacDetail ? <ZodiacSelectionBadges detail={run.zodiacDetail} /> : null}
+            {run.zodiacDetail ? <ZodiacSelectionBadges detail={run.zodiacDetail} variant="prediction" /> : null}
             {isWaveStrategy && !run.waveDetail && waveSummary ? (
               <WaveSummaryBoard predictedWaves={waveSummary.predictedWaves} excludedWave={waveSummary.excludedWave} />
             ) : null}

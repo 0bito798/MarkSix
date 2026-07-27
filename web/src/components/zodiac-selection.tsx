@@ -5,6 +5,8 @@ export type ZodiacSelectionDetail = {
   zodiacsJson: string;
 };
 
+export type ZodiacSelectionVariant = "compact" | "prediction" | "history";
+
 type ZodiacEntry = {
   zodiac: string;
   rank: number;
@@ -39,13 +41,16 @@ export function zodiacSelectionLabel(mode?: string | null): string {
 export function ZodiacSelectionBadges({
   detail,
   actualZodiac,
+  variant = "compact",
 }: {
   detail: ZodiacSelectionDetail | null | undefined;
   actualZodiac?: string | null;
+  variant?: ZodiacSelectionVariant;
 }) {
   if (!detail) return null;
   const zodiacs = parseZodiacSelection(detail.zodiacsJson);
   if (zodiacs.length === 0) return null;
+  const surfaceClass = variant === "prediction" ? "ball" : variant === "history" ? "history-ball" : "zodiac-token-compact";
 
   return (
     <div className="zodiac-summary">
@@ -54,7 +59,7 @@ export function ZodiacSelectionBadges({
         {zodiacs.map((item) => (
           <span
             key={item.zodiac}
-            className={`zodiac-token ${detail.mode === "EXCLUDE" ? "is-excluded" : ""} ${actualZodiac === item.zodiac ? "is-actual" : ""}`}
+            className={`zodiac-token zodiac-token-${variant} ${surfaceClass} ${detail.mode === "EXCLUDE" ? "is-excluded" : ""} ${actualZodiac === item.zodiac ? "is-actual" : ""}`}
             title={`#${item.rank} ${item.score.toFixed(2)}`}
           >
             {item.zodiac}

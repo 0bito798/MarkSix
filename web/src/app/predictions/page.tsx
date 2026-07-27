@@ -176,7 +176,7 @@ export default async function PredictionsPage({
                           {isWaveStrategy ? (
                             <WavePredictionSummary detail={run.waveDetail} numbers={run.picks.map((pick) => pick.number)} />
                           ) : isZodiacStrategy ? (
-                            <ZodiacSelectionBadges detail={run.zodiacDetail} />
+                            <ZodiacSelectionBadges detail={run.zodiacDetail} variant="history" />
                           ) : (
                             <div className="number-selection">
                               {isNumberExclusion ? <span className="selection-mode-label">排除码</span> : null}

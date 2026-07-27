@@ -1006,10 +1006,14 @@ tbody tr:hover td {
 
 .zodiac-token {
   display: inline-flex;
-  width: 28px;
-  height: 28px;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+}
+
+.zodiac-token-compact {
+  width: 28px;
+  height: 28px;
   border: 1px solid var(--line);
   border-radius: 50%;
   background: var(--surface);
@@ -1018,9 +1022,15 @@ tbody tr:hover td {
   font-weight: 700;
 }
 
-.zodiac-token.is-excluded {
+.zodiac-token-compact.is-excluded {
   border-color: color-mix(in srgb, var(--red) 55%, var(--line));
   color: var(--red);
+}
+
+.zodiac-token.ball.is-excluded,
+.zodiac-token.history-ball.is-excluded {
+  color: #fff;
+  background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
 }
 
 .zodiac-token.is-actual {
