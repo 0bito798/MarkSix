@@ -13,7 +13,7 @@
     "vercel-build": "prisma generate && prisma db push && next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --import tsx --test src/lib/strategies.markov.test.ts src/lib/strategies.zodiac.test.ts src/lib/strategies.kill-ten.test.ts src/lib/wave-python-parity.test.ts src/lib/prediction-review.test.ts",
+    "test": "node --import tsx --test src/components/zodiac-selection.test.tsx src/lib/strategies.markov.test.ts src/lib/strategies.zodiac.test.ts src/lib/strategies.kill-ten.test.ts src/lib/wave-python-parity.test.ts src/lib/prediction-review.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
